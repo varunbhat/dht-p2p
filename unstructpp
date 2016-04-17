@@ -1,0 +1,432 @@
+#!/usr/bin/env python
+
+import logging
+import socket
+
+import sys
+import threading
+
+import time
+import random
+
+import redis
+from BootstrapServer import BootstrapServer
+from PeerClient import PeerClient
+import argparse
+import json
+from PeerProtocol import PeerProtocol
+from fuzzywuzzy import fuzz
+
+# ======================================================================================
+# Database Connection
+r = redis.Redis(
+    host='redis.varunbhat.in',
+    port=6379
+)
+
+
+# ======================================================================================
+# Helper Functions
+
+def arguement_parser():
+    parser = argparse.ArgumentParser(description='Create a socket server')
+    parser.add_argument('-b', "--bootstrap-ip", type=str, help='Bootstrap server IP address', required=True)
+    parser.add_argument('-p', "--port", type=int, help='Port Number to use for the server', required=True)
+    parser.add_argument('-n', "--bootstrap-port", type=int, help='Bootstrap server port number', required=True)
+    parser.add_argument('-u', "--username", type=str, help='Username to connect to bootstrap')
+    parser.add_argument('-c', "--cache-size", type=str, help='Size of the cache')
+    args = parser.parse_args()
+    return args
+
+
+def read_resource_txt():
+    if not r.exists('global_resources'):
+        search_list = []
+        data = open('resources.txt', 'r').read().replace('\r', '').split('\n')
+        for index in range(len(data)):
+            if len(data[index]) > 0 and data[index][0] != '#':
+                search_list.append(data[index])
+        r.sadd('global_resources', *search_list)
+    else:
+        logging.debug('Master File List already Loaded.')
+
+
+def select_random_files(length, location):
+    files = r.srandmember('global_resources', length)
+    r.sadd(location, *files)
+    return files
+
+
+# ======================================================================================
+# Initilalization
+
+node_info_context = None
+
+resources = []
+
+args = arguement_parser()
+
+APP_NAME = '_'.join([socket.gethostname().replace('.', '_'), str(args.port)])
+
+
+def an(string):
+    return 'node_' + '_'.join([APP_NAME, string])
+
+
+key = {
+    'OLIST': an('outgoing'),
+    # 'OHASHADDR': an('outgoing_addr_set'),
+    'ILIST': an('incoming'),
+    # 'IHASHADDR': an('incoming_addr_set'),
+    'FILES': an('files'),
+    'NODE_KEY': APP_NAME,
+    'SEARCH_QUERIES': 'global_search_queries_hash',
+    'NODE_QUERIES': an('queries_set'),
+    'SEARCH_RESULTS': 'global_search_results',
+}
+
+
+class CacheTS:
+    cache_popularity = []
+    cache_address = []
+    cache_size = 0
+    cache_enabled = True
+    lock = None
+
+    def __init__(self, resource_len, cache_size):
+        self.lock = threading.Lock()
+        self.cache_size = cache_size
+        self.cache_popularity = [0 for i in range(resource_len)]
+        self.cache_address = [None for i in range(cache_size)]
+        pass
+
+    def peg(self, index):
+        self.lock.acquire()
+        self.cache_popularity[index] += 1
+        self.lock.release()
+
+    def reset(self, index):
+        self.lock.acquire()
+        self.cache_popularity[index] = 0
+        self.lock.release()
+
+
+cts = None
+
+logging.basicConfig(filename='%s.log' % (APP_NAME), level=logging.DEBUG,
+                    format='[%(asctime)-15s %(levelname)s] %(message)s')
+# logging.basicConfig(level=logging.DEBUG,
+#                     format='[%(asctime)-15s %(levelname)s] %(message)s')
+
+USERNAME = args.username or 'ALPHA'
+BOOTSTRAP_IP = args.bootstrap_ip
+BOOTSTRAP_PORT = args.bootstrap_port
+
+SERVER_IP = '127.0.0.1'
+SERVER_PORT = args.port or 18560
+
+bs = BootstrapServer(USERNAME, BOOTSTRAP_IP, BOOTSTRAP_PORT)
+node = PeerClient(args.username or USERNAME)
+node.use(bs)
+
+# ======================================================================================
+# Server command handler
+
+server_command_handler_thread = None
+
+
+def server_command_handler(data):
+    global cts, resources
+    data = data['data']
+    data = json.loads(data)
+
+    if data['command'] == 'read_files':
+        file_count = data['file_count']
+        while r.spop(key['FILES']): pass
+        files = select_random_files(file_count, key['FILES'])
+        logging.debug('Files Loaded. %s' % (files))
+    elif data['command'] == 'register_bootstrap':
+        time.sleep(random.random())
+        while r.spop(r.hget(node_info_context, 'OLIST')): pass
+        while r.spop(r.hget(node_info_context, 'ILIST')): pass
+        r.hdel(node_info_context, 'OLIST')
+        r.hdel(node_info_context, 'ILIST')
+        r.hdel(node_info_context, 'OLIST')
+        r.hdel(node_info_context, 'ILIST')
+        bs.reconnect(*node.get_address())
+    elif data['command'] == 'bootstrap_leave':
+        while r.spop(r.hget(node_info_context, 'OLIST')): pass
+        while r.spop(r.hget(node_info_context, 'ILIST')): pass
+        r.hdel(node_info_context, 'OLIST')
+        r.hdel(node_info_context, 'ILIST')
+        bs.delete_ip(*node.get_address())
+    elif data['command'] == 'set_cache_size':
+        cts = CacheTS(len(resources), int(data['cache_size']))
+        logging.debug('Setting Cache Size:%d' % (cts.cache_size))
+
+
+# ======================================================================================
+# Bootstrap Events
+
+@bs.on('start')
+def bootstrap_start():
+    if not r.hexists(node_info_context, 'OLIST'):
+        logging.debug('Clients Not Registered with Central Node')
+        bs.register(*node.get_address())
+    else:
+        logging.debug('Registering with Bootstrap server.')
+        out_nodes = r.smembers(r.hget(node_info_context, 'OLIST'))
+        out_nodes = [addr.split(':') for addr in out_nodes]
+        out_nodes = [(i, int(p)) for i, p in out_nodes]
+        for ip, port in out_nodes:
+            logging.debug('Read Client: %s:%d' % (ip, port))
+            node.leave(ip, port)
+            node.join(ip, port)
+
+
+@bs.on('stop')
+def bs_stop(*args, **kwargs):
+    logging.debug('Bootstrap Closing')
+
+
+# ======================================================================================
+# Bootstrap Responses
+
+@bs.response('register')
+def bootstrap(err, rinfo):
+    logging.debug('Register Response Handler.Response:%s' % (rinfo))
+    if err:
+        return
+    if err is False and rinfo['error_code'] >= 0 and rinfo['error_code'] < 9997:
+        logging.debug('Outgoing Nodes Received from Bootstrap Server.')
+
+        p = r.pipeline()
+        p.hsetnx(node_info_context, 'OLIST', key['OLIST'])
+        p.hget(node_info_context, 'OLIST')
+        key['OLIST'] = p.execute()[1]
+        client_list = ["%s:%d" % (i, p) for i, p in rinfo['clients']]
+
+        for addr in rinfo['clients']:
+            node.join(*addr)
+
+        if len(client_list) > 0:
+            r.sadd(key['OLIST'], *client_list)
+
+        r.sadd('global_clients_set', key['NODE_KEY'])
+    elif rinfo['error_code'] == 9998:
+        logging.debug('Node already registered, Lost client Information.')
+
+
+@bs.response('delete')
+def bootstrap_delete(err, rinfo):
+    logging.debug('Delete Response Received:%s' % (str(rinfo)))
+
+
+@bs.response('bs')
+def bs_message(err, rinfo):
+    logging.debug('Invalid Message sent to BootstrapServer:%s' % (str(rinfo)))
+
+
+# ======================================================================================
+# Node Events
+
+@node.on('init')
+def node_init():
+    global node_info_context
+    global node
+    global key
+    global server_command_handler_thread
+    global resources
+    global cts
+
+    read_resource_txt()
+    ip, port = node.get_address()
+
+    r.hsetnx('global_clients', APP_NAME, an('master_info'))
+    node_info_context = r.hget('global_clients', APP_NAME)
+    r.hmset(node_info_context, {'IP': ip, 'PORT': port, 'FILES': key['FILES'], 'NODE_QUERIES': key['NODE_QUERIES']})
+    data = r.hgetall(node_info_context)
+    key.update(data)
+    key['FILES'] = r.hget(node_info_context, 'FILES')
+
+    if not r.exists(key['FILES']):
+        logging.debug('Reading %s from redis' % key['FILES'])
+        files = select_random_files(8, key['FILES'])
+        logging.debug('Files Loaded. %s' % (files))
+    else:
+        logging.debug('Files preloaded. %s' % (r.smembers(key['FILES'])))
+
+    p = r.pubsub()
+    p.subscribe(**{'SERVER_COMMANDS': server_command_handler})
+    server_command_handler_thread = p.run_in_thread(sleep_time=0.001)
+
+    resources = list(r.smembers('global_resources'))
+    cts = CacheTS(len(resources), args.cache_size or 2)
+
+
+@node.on('message')
+def message_receive(*data):
+    # print data
+    pass
+
+
+@node.on('join')
+def save_peer_node(err, rinfo):
+    pp = PeerProtocol()
+    if rinfo.get('clients') is not None and len(rinfo['clients']) > 0:
+        logging.debug('Adding Node to Incoming List')
+        r.hsetnx(node_info_context, 'ILIST', key['ILIST'])
+        key['ILIST'] = r.hget(node_info_context, 'ILIST')
+        peer_addr = '%s:%d' % rinfo['clients']
+        r.sadd(key['ILIST'], peer_addr)
+        return pp.join_response(0)
+    else:
+        logging.debug('Invalid Join: %s' % rinfo)
+        return pp.join_response(9999)
+
+
+@node.on('leave')
+def delete_peer_node(err, rinfo):
+    pp = PeerProtocol()
+    addr = rinfo.get('clients')
+    if addr is None:
+        return pp.leave_response(9999)
+    addr = '%s:%s' % addr
+    r.srem(key['ILIST'], addr)
+    return pp.leave_response(0)
+
+
+@node.response('leave')
+def leave_response(err, rinfo):
+    logging.debug('Leave Response Received.Response:%s' % (rinfo))
+
+
+@node.on('stop')
+def deregister():
+    global server_command_handler_thread
+    data = list(r.smembers(key['OLIST']))
+    for i in range(len(data)):
+        ip, port = data[i].split(':')
+        node.leave(ip, int(port))
+        r.srem(key['OLIST'], data[i])
+    r.hdel(node_info_context, 'OLIST')
+    ip, port = node.get_address()
+    r.hdel('global_clients', key['NODE_KEY'])
+    r.srem('global_clients_set', key['NODE_KEY'])
+    bs.delete_ip(ip, port)
+    server_command_handler_thread.stop()
+
+
+# ======================================================================================
+# Search
+@node.on('search')
+def search(err, rinfo):
+    global resources
+
+    logging.debug('Search Request Received:%s' % (str(rinfo)))
+
+    if not rinfo.get('response_flag'):
+        # Check if the query recieved is a duplicate query
+        search_hash = rinfo.get('search_id')
+        if not r.hexists(key['SEARCH_QUERIES'], search_hash):
+            logging.debug('New entry received. creating a new entry with uuid:%s' % search_hash)
+            r.hset(key['SEARCH_QUERIES'], search_hash, search_hash + '_details')
+            r.hset(key['SEARCH_QUERIES'], search_hash + '_time', time.time())
+
+        if r.sismember(key['NODE_QUERIES'], search_hash):
+            logging.warn('Serviced duplicate request, Dropping request %s' % search_hash)
+            return
+        else:
+            r.sadd(key['NODE_QUERIES'], search_hash)
+            logging.debug('Unhandled request at node. Serving request %s' % search_hash)
+
+        pp = PeerProtocol()
+
+        if cts.cache_enabled:
+            for i in range(cts.cache_size):
+                if cts.cache_address[i] is None:
+                    continue
+
+                if fuzz.partial_ratio(rinfo['search_string'], cts.cache_address[i]['filename']) > 80:
+                    ip, port = cts.cache_address[i]['address']
+                    node.sprawn_thread(node.search(ip, port, rinfo['search_string'], search_hash, rinfo['hops'] + 1))
+                    return
+
+        # Get the files in the node
+        files = r.smembers(key['FILES'])
+        retained_results = []
+
+        # Perform search
+        for string in files:
+            if fuzz.partial_ratio(rinfo['search_string'], string) > 80:
+                retained_results.append(string)
+
+        # Obtain the results:
+        if len(retained_results) == 0:
+            # No message Received, forward the message to the peer
+            out_list = [addr.split(':') for addr in r.smembers(key['OLIST'])]
+            out_list = [(i, int(p)) for i, p in out_list]
+
+            if len(out_list) == 0:
+                ip, port = node.get_address()
+                sip, sport = rinfo['source_address']
+                node.send_data(sip, sport, pp.search_response(ip, port, 9998, search_hash))
+
+            for ip, port in out_list:
+                if (ip, port) == rinfo['source_address']:
+                    continue
+                logging.debug('Forwarding address = %s' % (str(rinfo['source_address'])))
+                node.sprawn_thread(node.search(ip, port, rinfo['search_string'], search_hash, rinfo['hops'] + 1))
+        else:
+            logging.debug('Filename Matched:%s' % (retained_results))
+            ip, port = node.get_address()
+            node.send_data(ip, port, pp.search_response(ip, port, len(retained_results), search_hash, retained_results,
+                                                        rinfo.get('hops')))
+
+    else:
+        if rinfo['error_code'] == 9999 or rinfo['error_code'] == 9998 or rinfo['error_code'] <= 0:
+            logging.debug('File not Found. Address = %s' % (str(rinfo['source_address'])))
+        else:
+            search_hash = rinfo.get('search_id')
+            logging.debug('File Found. Address = %s Files: %s' % (
+                str(rinfo['source_address']), str(rinfo['filename'])))
+
+            results = {
+                'filenames': rinfo['filename'],
+                'node_address': '%s:%d' % rinfo['source_address'],
+                'response_time': time.time(),
+                'hop_count': rinfo['hops'],
+                'start_time': r.hget(key['SEARCH_QUERIES'], search_hash + '_time')
+            }
+
+            r.lpush(key['SEARCH_RESULTS'], json.dumps(results))
+
+            # print "Filename:", rinfo['filename'], "Address:", rinfo['source_address'], 'Hops:', rinfo['hops']
+
+            if not r.hexists('global_search_queries_hash', search_hash + '_serviced'):
+                r.hset('global_search_queries_hash', search_hash + '_serviced', 1)
+                logging.debug('Updating Cache Popularity')
+                index = resources.index(rinfo['filename'][0])
+                logging.debug('File received index:%d' % index)
+                cts.peg(index)
+
+                cp = cts.cache_popularity[:]
+                max_list = []
+
+                logging.debug('popularity:%d' % cts.cache_popularity[index])
+                for i in range(cts.cache_size):
+                    max_list.append(cp.index(max(cp)))
+                    cp[max_list[-1]] = 0
+
+                if index in max_list:
+                    cts.cache_address[max_list.index(index)] = {'address': rinfo['source_address'],
+                                                                'filename': rinfo['filename'][0]}
+
+                logging.debug('Popular Entries %s' % cts.cache_address)
+
+
+# ======================================================================================
+
+
+if __name__ == '__main__':
+    node.start(ip=SERVER_IP, port=SERVER_PORT)
