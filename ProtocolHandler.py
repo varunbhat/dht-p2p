@@ -142,12 +142,13 @@ class ProtocolHandler:
                 data = clients
         return data
 
-    def register_request(self, ip_address, port,username):
+    def register_request(self, addr, username):
+        ip_address, port = addr
         message = 'REG %s %d %s' % (ip_address, port, username)
         message = self._string_len_prepend(message)
         return message
 
-    def deregister_ip_request(self, ip_address, port,username):
+    def deregister_ip_request(self, ip_address, port, username):
         message = 'DEL IPADDRESS %s %d %s' % (ip_address, port, username)
         message = self._string_len_prepend(message)
         return message
@@ -157,7 +158,7 @@ class ProtocolHandler:
         message = self._string_len_prepend(message)
         return message
 
-    def list_all(self,username):
+    def list_all(self, username):
         message = 'GET IPLIST %s' % (username)
         message = self._string_len_prepend(message)
         return message

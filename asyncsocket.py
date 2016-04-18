@@ -41,8 +41,7 @@ class AsyncNode:
         self.__persistant_thread_function.append(self._read_thread)
 
         # Start the Thread Manager
-        self.thread_handler = threading.Thread(target=self._thread_handler, args=())
-        self.thread_handler.start()
+        self.start_thread_handler()
 
         self._run_event_handler(self._get_event_handler('start'))
 
@@ -53,6 +52,10 @@ class AsyncNode:
             except KeyboardInterrupt:
                 self.stop()
                 break
+
+    def start_thread_handler(self):
+        self.thread_handler = threading.Thread(target=self._thread_handler, args=())
+        self.thread_handler.start()
 
     def stop(self):
         self._run_event_handler(self._get_event_handler('stop'))
@@ -119,9 +122,10 @@ class AsyncNode:
 
     def _read_thread(self):
         # Server Socket
-        server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.settimeout(1)
+        server.listen(1)
 
         logging.debug('Server Bound at %s:%d' % ('0.0.0.0', self.address[1]))
         server.bind(('', self.address[1]))
@@ -129,12 +133,10 @@ class AsyncNode:
         while not self.stop_flag:
             try:
                 # Read Data
-                data, addr = server.recvfrom(1024 * 24)
+                sock, addr = server.accept()
+                self.sprawn_thread(self._message_processor, sock, addr)
             except socket.timeout:
                 continue
-
-            logging.debug('Received Request: %s from %s' % (data, str(addr)))
-            self.sprawn_thread(self._message_processor, server, data, addr)
 
     def _get_event_handler(self, event_name):
         return self.__registered_events.get(event_name)
@@ -145,30 +147,36 @@ class AsyncNode:
         else:
             return None
 
-    def _message_processor(self, sock, data, src_address):
+    def _message_processor(self, sock, src_address):
+        try:
+            data = sock.recv(1024)
+        except socket.timeout:
+            self._run_event_handler(self._get_event_handler('message'), '', sock, src_address, err=True,
+                                    status={'reason': 'timeout'})
+            sock.close()
         response = self._run_event_handler(self._get_event_handler('message'), data, sock, src_address)
 
         if response is not None:
             logging.debug('Response sent: %s' % response)
-            sock.sendto(response, src_address)
+            sock.send(response)
+        sock.close()
 
-    def _socket_receive(self, sock, callback=None,event=None, addr=None, *args, **kwargs):
+    def _socket_receive(self, sock, callback=None, event=None, addr=None, *args, **kwargs):
         try:
             data = sock.recv(1024 * 8)
         except socket.timeout:
-            logging.debug('Socket Timeout. No Callback Set.')
             sock.close()
             if callback is not None:
-                callback(True, None)
+                callback('', err=True, status={'reason': 'timeout'})
+            if event is not None:
+                self._run_event_handler(self._get_event_handler(event), '', err=True, reason={'reason': 'timeout'})
             return
         sock.close()
 
-        if callback is None:
-            self._run_event_handler(self._get_event_handler('message'), data, sock, addr)
-        elif event is not None:
-            self._run_event_handler(self._get_event_handler(event), data, sock, addr)
-        else:
+        if callback is not None:
             callback(data, *args, **kwargs)
+        if event is not None:
+            self._run_event_handler(self._get_event_handler(event), data)
 
     def sprawn_thread_wrapper(self, func, args):
         args, kwargs = args
@@ -179,15 +187,15 @@ class AsyncNode:
         self.__thread_queue.put(threading.Thread(target=self.sprawn_thread_wrapper, args=(func, (args, kwargs))))
 
     def _get_socket(self, timeout=5):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(5)
         return sock
 
-    def send_data(self, dest_ip, dest_port, message, callback=None,event=None, *args, **kwargs):
+    def send_data(self, addr, message, callback=None, event=None, *args, **kwargs):
         sock = self._get_socket()
-        addr = (dest_ip, dest_port)
-        logging.debug('Socket Sending Data:%s' % (message))
-        sock.sendto(message, addr)
+        logging.debug('Socket Sending Data Destination:%s Data:%s' % (addr, message))
+        sock.connect(addr)
+        sock.send(message)
         if callback is not None or event is not None:
-            self.sprawn_thread(self._socket_receive, sock, callback, event,addr, *args, **kwargs)
+            self.sprawn_thread(self._socket_receive, sock, callback, event, addr, *args, **kwargs)

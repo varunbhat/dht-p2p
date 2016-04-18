@@ -1,22 +1,51 @@
 #!/usr/bin/env python
+from ProtocolHandler import ProtocolHandler
 from asyncsocket import AsyncNode
 import logging
+import argparse
+import ConfigParser
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='[%(asctime)-15s %(levelname)s] %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s] %(message)s')
+config = ConfigParser.RawConfigParser()
+config.read('node.cfg')
+protocol = ProtocolHandler()
+
+
+def arguement_parser():
+    parser = argparse.ArgumentParser(description='Create a socket server')
+    parser.add_argument('-p', "--port", type=int, help='Port Number to use for the server', required=True)
+    args = parser.parse_args()
+    return args
+
+
+def read_config():
+    cfg = type('obj', (object,), {})
+    cfg.bs_address = protocol.format_addresses([config.get('bootstrap', 'address').split(':')])
+    cfg.username = config.get('node', 'username')
+    return cfg
+
 
 node = AsyncNode()
+args = arguement_parser()
+CONFIG = read_config()
 
 
 @node.on('message')
-def echoMessage(data,sock,address):
+def echoMessage(data, sock, address):
     print address, data
     return 'howdy'
 
+@node.on('register')
+def bootstrap_registration(data,*args,**kwargs):
+    print args,kwargs
+
+
 @node.on('start')
 def send_message():
-    print 'starting'
-
+    global BOOTSTRAP_ADDRESS
+    # register with Bootstrap server
+    node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(),CONFIG.username),event='register')
+    pass
 
 if __name__ == '__main__':
-    node.start()
+    node.start(port=args.port)
