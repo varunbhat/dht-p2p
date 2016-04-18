@@ -166,7 +166,25 @@ def server_command_handler(data):
 
 
 # ======================================================================================
-# Bootstrap Events
+# def _handle_request(self, req):
+# if req is None:
+#     return self._run_event_handler(self._get_event_handler('invalid_message')) or self.protocol.unknown_request(
+#         9999)
+# elif req['type'] == 'JOIN':
+#     return self._run_event_handler(self._get_event_handler('join'), False, req) or self.protocol.join_response(
+#         0)
+# elif req['type'] == 'LEAVE':
+#     return self._run_event_handler(self._get_event_handler('leave'), False,
+#                                    req) or self.protocol.leave_response(0)
+# elif req['type'] == 'SER':
+#     ip, port = self.address
+#     return self._run_event_handler(self._get_event_handler('search'), False, req)
+# elif req['type'] == 'SER' and req['response_flag']:
+#     return None
+# else:
+#     return self._run_event_handler(self._get_event_handler(req['type']), False,
+#                                    req) or self.protocol.unknown_request(9999)
+
 
 @bs.on('start')
 def bootstrap_start():

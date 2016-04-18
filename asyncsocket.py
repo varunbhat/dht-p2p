@@ -3,10 +3,11 @@ import logging
 import socket
 import threading
 import time
+import requests
+import re
 
 
-class PeerClient:
-    debug = False
+class AsyncNode:
     __registered_events = {}
     __threads = []
     __persistant_threads = []
@@ -15,12 +16,8 @@ class PeerClient:
     __thread_queue = Queue.Queue()
     __response_events = {}
 
-    def __init__(self, username=None, address=('', 10000)):
-        self.sock = None
-        self.username = username
+    def __init__(self, address=('', 10000)):
         self.stop_flag = False
-        self.bootstrap_address = None
-        self.protocol = PeerProtocol()
         self.format_address(address)
         self._run_event_handler(self._get_event_handler('init'))
 
@@ -37,7 +34,6 @@ class PeerClient:
         self.format_address((ip, port))
         self._run_event_handler(self._get_event_handler('init'))
 
-
         # Start the middlewares register
         for middleware in self.__middlewares:
             self.__thread_queue.put(threading.Thread(target=middleware.start, args=()))
@@ -48,19 +44,24 @@ class PeerClient:
         self.thread_handler = threading.Thread(target=self._thread_handler, args=())
         self.thread_handler.start()
 
+        self._run_event_handler(self._get_event_handler('start'))
+
         while True:
             try:
-                self._run_event_handler(self._get_event_handler('start'))
+                self._run_event_handler(self._get_event_handler('loop'))
                 time.sleep(.5)
             except KeyboardInterrupt:
-                self._run_event_handler(self._get_event_handler('stop'))
-                self.stop_flag = True
-                logging.warn('Waiting for Thread Handler to exit.')
-                self.thread_handler.join()
-
-                for ware in self.__middlewares:
-                    ware.stop_flag = True
+                self.stop()
                 break
+
+    def stop(self):
+        self._run_event_handler(self._get_event_handler('stop'))
+        self.stop_flag = True
+        logging.warn('Waiting for Thread Handler to exit.')
+        self.thread_handler.join()
+
+        for ware in self.__middlewares:
+            ware.stop()
 
     def get_address(self):
         return self.address
@@ -120,7 +121,7 @@ class PeerClient:
         # Server Socket
         server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.settimeout(0.5)
+        server.settimeout(1)
 
         logging.debug('Server Bound at %s:%d' % ('0.0.0.0', self.address[1]))
         server.bind(('', self.address[1]))
@@ -128,7 +129,7 @@ class PeerClient:
         while not self.stop_flag:
             try:
                 # Read Data
-                data, addr = server.recvfrom(1024)
+                data, addr = server.recvfrom(1024 * 24)
             except socket.timeout:
                 continue
 
@@ -145,46 +146,15 @@ class PeerClient:
             return None
 
     def _message_processor(self, sock, data, src_address):
-        self._run_event_handler(self._get_event_handler('message'), data, sock, src_address)
-
-        # Process the data
-        try:
-            data_len, data = re.findall(r'(\d{3}) (.*)', data)[0] if len(data) > 0 else (0, '')
-        except IndexError:
-            return
-
-        # Process and generate Response
-        request = self.protocol.parse_request(data)
-        logging.debug('Parsed Request:%s' % (str(request)))
-
-        response = self._handle_request(request)
+        response = self._run_event_handler(self._get_event_handler('message'), data, sock, src_address)
 
         if response is not None:
             logging.debug('Response sent: %s' % response)
             sock.sendto(response, src_address)
 
-    def _handle_request(self, req):
-        if req is None:
-            return self._run_event_handler(self._get_event_handler('invalid_message')) or self.protocol.unknown_request(
-                9999)
-        elif req['type'] == 'JOIN':
-            return self._run_event_handler(self._get_event_handler('join'), False, req) or self.protocol.join_response(
-                0)
-        elif req['type'] == 'LEAVE':
-            return self._run_event_handler(self._get_event_handler('leave'), False,
-                                           req) or self.protocol.leave_response(0)
-        elif req['type'] == 'SER':
-            ip, port = self.address
-            return self._run_event_handler(self._get_event_handler('search'), False, req)
-        elif req['type'] == 'SER' and req['response_flag']:
-            return None
-        else:
-            return self._run_event_handler(self._get_event_handler(req['type']), False,
-                                           req) or self.protocol.unknown_request(9999)
-
-    def _socket_receive(self, sock, callback=None, addr=None):
+    def _socket_receive(self, sock, callback=None,event=None, addr=None, *args, **kwargs):
         try:
-            data = sock.recv(1000)
+            data = sock.recv(1024 * 8)
         except socket.timeout:
             logging.debug('Socket Timeout. No Callback Set.')
             sock.close()
@@ -193,15 +163,12 @@ class PeerClient:
             return
         sock.close()
 
-        self._run_event_handler(self._get_event_handler('message'), data)
-
-        data_len, data = re.findall(r'(\d{3}) (.*)', data)[0]
-        response = self.protocol.parse_response(data)
-        if addr is not None:
-            response['host_address'] = addr
-
-        if callback is not None:
-            callback(False, response)
+        if callback is None:
+            self._run_event_handler(self._get_event_handler('message'), data, sock, addr)
+        elif event is not None:
+            self._run_event_handler(self._get_event_handler(event), data, sock, addr)
+        else:
+            callback(data, *args, **kwargs)
 
     def sprawn_thread_wrapper(self, func, args):
         args, kwargs = args
@@ -217,25 +184,10 @@ class PeerClient:
         sock.settimeout(5)
         return sock
 
-    def join(self, ip, port):
-        logging.debug('Join Request.Peer Address:%s:%d' % (ip, port))
-        message = self.protocol.join_request(*self.address)
-        self.send_data(ip, port, message, self.__response_events.get('join'), (ip, port))
-
-    def leave(self, ip, port):
-        logging.debug('Leave Request.Peer Address:%s:%d' % (ip, port))
-        message = self.protocol.leave_request(*self.address)
-        self.send_data(ip, port, message, self.__response_events.get('leave'), (ip, port))
-
-    def search(self, peer_ip, peer_port, filename, uid, hops):
-        logging.debug('Search Request.Filename:%s, Destination:%s' % (filename, str(((peer_ip, peer_port)))))
-        ip, port = self.address
-        message = self.protocol.search_request(ip, port, filename, uid, hops)
-        self.send_data(peer_ip, peer_port, message)
-
-    def send_data(self, dest_ip, dest_port, message, callback=None, *args, **kwargs):
+    def send_data(self, dest_ip, dest_port, message, callback=None,event=None, *args, **kwargs):
         sock = self._get_socket()
+        addr = (dest_ip, dest_port)
         logging.debug('Socket Sending Data:%s' % (message))
-        sock.sendto(message, (dest_ip, dest_port))
-        if callback is not None:
-            self.sprawn_thread(self._socket_receive, sock, callback, *args, **kwargs)
+        sock.sendto(message, addr)
+        if callback is not None or event is not None:
+            self.sprawn_thread(self._socket_receive, sock, callback, event,addr, *args, **kwargs)

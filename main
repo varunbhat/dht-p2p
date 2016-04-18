@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+from asyncsocket import AsyncNode
+import logging
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='[%(asctime)-15s %(levelname)s] %(message)s')
+
+node = AsyncNode()
+
+
+@node.on('message')
+def echoMessage(data,sock,address):
+    print address, data
+    return 'howdy'
+
+@node.on('start')
+def send_message():
+    print 'starting'
+
+
+if __name__ == '__main__':
+    node.start()

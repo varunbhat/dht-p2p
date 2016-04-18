@@ -8,7 +8,7 @@ class ProtocolHandler:
         regex_string = r'(REG|DEL|BS|GET|JOIN|LEAVE|SER|[A-Z]+)(' \
                        r'(?<=REG)(?P<reg_address>( \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+)+) (?P<reg_username>[^0-9_][A-Za-z_0-9]+)|' \
                        r'(?<=REG)(?P<reg_resp>OK) ((?P<username_reg>[^0-9_][A-Za-z_0-9]+) )?(?P<error_code_reg>-?\d+)(?P<client_list_reg>( \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+){0,3})|' \
-                       r'(?<=DEL) (IPADDRESS|UNAME)? *OK *(?P<username_del>[^0-9_][A-Za-z_0-9]+)? *(?P<client_list_del>( *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+){0,3}) *(?P<error_code_del>-?\d+)|' \
+                       r'(?<=DEL) (IPADDRESS|UNAME)? *(?P<del_resp>OK)? *(?P<username_del>[^0-9_][A-Za-z_0-9]+)? *(?P<client_list_del>( *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+){0,3}) *(?P<error_code_del>-?\d+)|' \
                        r'(?<=BS) REQ (?P<error_code_bs>-?\d+)|' \
                        r'(?<=GET) IPLIST (?P<get_resp>OK )?(?P<username_get>[^0-9_][A-Za-z_0-9]+) ?(?P<client_count>\d+)? *(?P<client_list_get>( *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+)+)?|' \
                        r'(?<=JOIN) (?P<address_join>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+\d+)|' \
@@ -16,7 +16,7 @@ class ProtocolHandler:
                        r'(?<=LEAVE) (?P<address_leave>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+\d+)|' \
                        r'(?<=LEAVE)(?P<leave_resp>OK) (?P<error_code_leave>-?\d+)|' \
                        r'(?<=SER) (?P<address_search>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) "(?P<search_string>.*?)" (?P<search_uid_req>[a-fA-F0-9\-]{36})? *(?P<hops>\d+)|' \
-                       r'(?<=SER)(?P<ser_resp>OK) (?P<node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<search_uid_resp>[a-fA-f0-9\-]{36}) (?P<error_code_search>\d+)( (?P<hops_response>\d+)(?P<filename>( ".*?"){0,}))?|' \
+                       r'(?<=SER)(?P<ser_resp>OK) (?P<node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<search_uid_resp>[a-fA-f0-9\-]{36})? ?(?P<error_code_search>\d+)( (?P<hops_response>\d+)(?P<filename>( ".*?"){0,}))?|' \
                        r' (?P<unspecified_data>.*)' \
                        r')'
 
@@ -79,12 +79,11 @@ class ProtocolHandler:
                                                      'address_join') is not None else '')
         elif response_type == 'LEAVE':
             response = {}
-            if response_validate.group('ser_resp') == 'OK':
+            response['type'] = response_type
+            if response_validate.group('leave_resp') == 'OK':
                 response['response_flag'] = True
-                response['type'] = response_type
                 response['error_code'] = int(response_validate.group('error_code_leave'))
             else:
-                response['type'] = response_type
                 response['clients'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
                                                  response_validate.group('address_leave') if response_validate.group(
                                                      'address_leave') is not None else '')
@@ -143,13 +142,13 @@ class ProtocolHandler:
                 data = clients
         return data
 
-    def register_request(self, ip_address, port):
-        message = 'REG %s %d %s' % (ip_address, port, self.username)
+    def register_request(self, ip_address, port,username):
+        message = 'REG %s %d %s' % (ip_address, port, username)
         message = self._string_len_prepend(message)
         return message
 
-    def deregister_ip_request(self, ip_address, port):
-        message = 'DEL IPADDRESS %s %d %s' % (ip_address, port, self.username)
+    def deregister_ip_request(self, ip_address, port,username):
+        message = 'DEL IPADDRESS %s %d %s' % (ip_address, port, username)
         message = self._string_len_prepend(message)
         return message
 
@@ -158,8 +157,8 @@ class ProtocolHandler:
         message = self._string_len_prepend(message)
         return message
 
-    def list_all(self):
-        message = 'GET IPLIST %s' % (self.username)
+    def list_all(self,username):
+        message = 'GET IPLIST %s' % (username)
         message = self._string_len_prepend(message)
         return message
 
