@@ -193,9 +193,19 @@ class AsyncNode:
         return sock
 
     def send_data(self, addr, message, callback=None, event=None, *args, **kwargs):
-        sock = self._get_socket()
-        logging.debug('Socket Sending Data Destination:%s Data:%s' % (addr, message))
-        sock.connect(addr)
-        sock.send(message)
+        try:
+            sock = self._get_socket()
+            sock.connect(addr)
+            logging.debug('Socket Sending Data Destination:%s Data:%s' % (addr, message))
+            sock.send(message)
+        except socket.error:
+            sock.close()
+            logging.error('Could not connect to socket:%s, Data:%s' % (addr, message))
+            if callback is not None:
+                callback('', err=True, status={'reason': 'socket error'})
+            if event is not None:
+                self._run_event_handler(self._get_event_handler(event), '', err=True, reason={'reason': 'timeout'})
+            return
+
         if callback is not None or event is not None:
             self.sprawn_thread(self._socket_receive, sock, callback, event, addr, *args, **kwargs)
