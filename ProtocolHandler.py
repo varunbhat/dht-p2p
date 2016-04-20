@@ -4,6 +4,9 @@ import uuid
 
 
 class ProtocolHandler:
+    LEAVE = 1
+    JOIN = 0
+
     def parse_response(self, data):
         regex_string = r'(REG|DEL|BS|GET|JOIN|LEAVE|SER|UPFIN|GETKY|GIVEKY|ADD|[A-Z]+)(' \
                        r'(?<=REG)(?P<reg_address>( \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+)+) (?P<reg_username>[^0-9_][A-Za-z_0-9]+)|' \
@@ -145,9 +148,9 @@ class ProtocolHandler:
                                                      'getkey_client_details') if response_validate.group(
                                                      'getkey_client_details') is not None else '')
                 response['keymap'] = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ ([a-zA-Z0-9]+) ([a-zA-Z0-9]+)',
-                                                 response_validate.group(
-                                                     'getkey_client_details') if response_validate.group(
-                                                     'getkey_client_details') is not None else '')
+                                                response_validate.group(
+                                                    'getkey_client_details') if response_validate.group(
+                                                    'getkey_client_details') is not None else '')
             else:
                 response['is_response'] = False
                 response['key'] = response_validate.group('getkey_key')
@@ -163,9 +166,9 @@ class ProtocolHandler:
                                                      'givekey_client_details') if response_validate.group(
                                                      'givekey_client_details') is not None else '')
                 response['keymap'] = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ ([a-zA-Z0-9]+) ([a-zA-Z0-9]+)',
-                                            response_validate.group(
-                                                'givekey_client_details') if response_validate.group(
-                                                'givekey_client_details') is not None else '')
+                                                response_validate.group(
+                                                    'givekey_client_details') if response_validate.group(
+                                                    'givekey_client_details') is not None else '')
         elif response_type == 'ADD':
             response['type'] = response_type
             if response_validate.group('add_resp') == 'OK':
@@ -230,55 +233,59 @@ class ProtocolHandler:
     def _string_len_prepend(self, string):
         return '%s %s' % (str(len(string)).zfill(3), string)
 
-    def leave_request(self, ip, port):
+    def leave_request(self, address):
+        ip, port = address
         return self._string_len_prepend('LEAVE %s %s' % (ip, port))
 
     def leave_response(self, error_code):
         return self._string_len_prepend('LEAVEOK %d' % (error_code))
 
-    def join_request(self, ip, port):
+    def join_request(self, address):
+        ip, port = address
         return self._string_len_prepend('JOIN %s %s' % (ip, port))
 
     def join_response(self, error_code):
         return self._string_len_prepend('JOINOK %d' % (error_code))
 
-    def search_request(self, ip, port, filename, uid, hops):
-        return self._string_len_prepend('SER %s %d "%s" %s %d' % (ip, port, filename, uid, hops))
-
     def update_finger_request(self, type, address, key):
-        ip,port  = address
-        return self._string_len_prepend('UPFIN %d %s %d %s' % (type,ip,port,key))
+        ip, port = address
+        return self._string_len_prepend('UPFIN %d %s %d %s' % (type, ip, port, key))
 
     def update_finger_response(self, err_code):
         return self._string_len_prepend('UPFINOK %d' % (err_code))
 
-    def get_key_request(self,key):
-        return self._string_len_prepend('GETKY %s'%key)
+    def get_key_request(self, key):
+        return self._string_len_prepend('GETKY %s' % key)
 
-    def get_key_response(self,addresses, keymap):
+    def get_key_response(self, addresses, keymap):
         data = ''
         for i in range(len(addresses)):
             temp = (addresses[i] + keymap[i])
-            data += ' ' + ' '.join(temp)
+            temp = ' '.join([str(i) for i in temp])
+            data += ' ' + temp
         return self._string_len_prepend('GETKYOK %d%s' % (len(addresses), data))
 
-    def give_key_request(self,addresses,keymap):
+    def give_key_request(self, addresses, keymap):
         data = ''
         for i in range(len(addresses)):
             temp = (addresses[i] + keymap[i])
-            data += ' ' + ' '.join(temp)
-        return self._string_len_prepend('GIVEKY %d%s'%(len(addresses),data))
+            temp = ' '.join([str(i) for i in temp])
+            data += ' ' + temp
+        return self._string_len_prepend('GIVEKY %d%s' % (len(addresses), data))
 
     def give_key_response(self, err_code):
         return self._string_len_prepend('GIVEKYOK %d' % (err_code))
 
-    def add_request(self,address,keymap):
-        ip,port = address
-        key,entry = keymap
-            return self._string_len_prepend('ADD %s %d %s %s' % (ip,port,key,entry))
+    def add_request(self, address, keymap):
+        ip, port = address
+        key, entry = keymap
+        return self._string_len_prepend('ADD %s %d %s %s' % (ip, port, key, entry))
 
     def add_response(self, err_code):
         return self._string_len_prepend('ADDOK %s' % (err_code))
+
+    def search_request(self, ip, port, filename, uid, hops):
+        return self._string_len_prepend('SER %s %d "%s" %s %d' % (ip, port, filename, uid, hops))
 
     def search_response(self, ip, port, error_code, uid, filename=None, hops=0):
         if filename is not None and len(filename) > 0 and error_code >= 0:
