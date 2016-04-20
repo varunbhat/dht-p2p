@@ -125,10 +125,10 @@ class AsyncNode:
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.settimeout(1)
-        server.listen(1)
 
         logging.debug('Server Bound at %s:%d' % ('0.0.0.0', self.address[1]))
         server.bind(('', self.address[1]))
+        server.listen(5)
 
         while not self.stop_flag:
             try:
@@ -176,7 +176,9 @@ class AsyncNode:
         if callback is not None:
             callback(data, *args, **kwargs)
         if event is not None:
-            self._run_event_handler(self._get_event_handler(event), data)
+            self._run_event_handler(self._get_event_handler(event), data, *args, **kwargs)
+
+        return data
 
     def sprawn_thread_wrapper(self, func, args):
         args, kwargs = args
@@ -192,7 +194,10 @@ class AsyncNode:
         sock.settimeout(5)
         return sock
 
-    def send_data(self, addr, message, callback=None, event=None, *args, **kwargs):
+    def startevent(self, event, *args, **kwargs):
+        self.sprawn_thread(self._run_event_handler(self._get_event_handler(event), *args, **kwargs))
+
+    def send_data(self, addr, message, callback=None, event=None, no_thread=False, *args, **kwargs):
         try:
             sock = self._get_socket()
             sock.connect(addr)
@@ -209,3 +214,5 @@ class AsyncNode:
 
         if callback is not None or event is not None:
             self.sprawn_thread(self._socket_receive, sock, callback, event, addr, *args, **kwargs)
+        elif no_thread:
+            return self._socket_receive(sock, callback, event, addr, *args, **kwargs)
