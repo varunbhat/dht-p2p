@@ -6,14 +6,13 @@ from asyncsocket import AsyncNode
 import logging
 import argparse
 import ConfigParser
-import hashlib
+
+from chord import Chord
 
 logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s] %(message)s')
 config = ConfigParser.RawConfigParser()
 config.read('node.cfg')
 protocol = ProtocolHandler()
-NODE_ID = None
-NODE_NEIGHBOURS = {'predecessor':None, 'successor':None}
 
 
 def arguement_parser():
@@ -33,6 +32,7 @@ def read_config():
 node = AsyncNode()
 args = arguement_parser()
 CONFIG = read_config()
+chord = Chord(node.get_address(), 64000)
 
 
 @node.on('message')
@@ -41,13 +41,14 @@ def echoMessage(data, sock, address):
     if response is not None:
         node.startevent(response['type'], response)
 
+    print data
+
 
 @node.on('join_request_generate')
 def send_join_requests(clientlist):
-
-
-
-    pass
+    join_list = chord.generate_finger_table(clientlist)
+    for addr in join_list:
+        node.send_data(addr,protocol.join_request(node.get_address()))
 
 
 @node.on('register')
@@ -71,10 +72,8 @@ def bootstrap_registration(data, *args, **kwargs):
 @node.on('start')
 def bootstrap_registration():
     # Create node ID
-    NODE_ID = hashlib.sha1(b'%s:%d' % node.get_address()).hexdigest()
-    logging.debug('Using sha1 node id:%s' % (NODE_ID))
-
-    # register with Bootstrap server
+    logging.debug('Using sha1 node id:%d' % (chord.get_nodeid()))
+    # Register with Bootstrap server
     node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(), CONFIG.username), event='register')
 
 
