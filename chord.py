@@ -22,6 +22,9 @@ class Chord:
     def get_finger_table(self):
         return self.INV_NODE_FINGER_TABLE
 
+    def get_peer_list(self):
+        return list(set(self.INV_NODE_FINGER_TABLE.values()))
+
     def generate_finger_table(self, clientlist):
         id_list = {}
         finger = []
@@ -43,10 +46,8 @@ class Chord:
             finger.append(i % (2 ** self._NODE_COUNT_MANTISSA))
 
         self.NODE_FINGER_TABLE = finger
-        inv_id_list = {str(v): k for k, v in id_list.items()}
-        self.INV_NODE_FINGER_TABLE = {i: inv_id_list[str(i)] for i in finger}
+        inv_id_list = {v: k for k, v in id_list.items()}
+        self.INV_NODE_FINGER_TABLE = {i: inv_id_list[i].split(':') for i in finger}
+        self.INV_NODE_FINGER_TABLE = {k: (v[0],int(v[1]))  for k,v in self.INV_NODE_FINGER_TABLE.items()}
 
-        finger_addresses = [inv_id_list[str(id)] for id in finger]
-        finger_addresses = [addr.split(':') for addr in finger_addresses]
-        finger_addresses = [(ip, int(port)) for ip, port in finger_addresses]
-        return list(set(finger_addresses))
+

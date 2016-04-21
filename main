@@ -46,9 +46,9 @@ def echoMessage(data, sock, address):
 
 @node.on('join_request_generate')
 def send_join_requests(clientlist):
-    join_list = chord.generate_finger_table(clientlist)
-    for addr in join_list:
-        node.send_data(addr,protocol.join_request(node.get_address()))
+    chord.generate_finger_table(clientlist)
+    for addr in chord.get_peer_list():
+        node.send_data(addr, protocol.join_request(node.get_address()))
 
 
 @node.on('register')
