@@ -55,12 +55,15 @@ class ProtocolHandler:
                                                  response_validate.group('reg_address') if response_validate.group(
                                                      'reg_address') is not None else '')
         elif response_type == 'DEL':
-            response['type'] = response_type
-            response['username'] = response_validate.group('username_del')
-            response['error_code'] = int(response_validate.group('error_code_del'))
-            response['clients'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
-                                             response_validate.group('client_list_del') if response_validate.group(
-                                                 'client_list_del') is not None else '')
+            if response_validate.group('del_resp') == 'OK':
+                response['type'] = response_type
+                response['username'] = response_validate.group('username_del')
+                response['error_code'] = int(response_validate.group('error_code_del'))
+                response['clients'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
+                                                 response_validate.group('client_list_del') if response_validate.group(
+                                                     'client_list_del') is not None else '')
+
+
         elif response_type == 'BS':
             response['type'] = response_type
             response['error_code'] = int(response_validate.group('error_code_bs'))
