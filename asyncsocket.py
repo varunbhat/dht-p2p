@@ -150,6 +150,7 @@ class AsyncNode:
     def _message_processor(self, sock, src_address):
         try:
             data = sock.recv(1024)
+            logging.debug('Request Received: %s' % data)
         except socket.timeout:
             self._run_event_handler(self._get_event_handler('message'), '', sock, src_address, err=True,
                                     status={'reason': 'timeout'})
