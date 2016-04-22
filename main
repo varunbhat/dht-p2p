@@ -6,6 +6,8 @@ from asyncsocket import AsyncNode
 import logging
 import argparse
 import ConfigParser
+import random
+import re
 
 from chord import Chord
 
@@ -13,11 +15,14 @@ logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s] 
 config = ConfigParser.RawConfigParser()
 config.read('node.cfg')
 protocol = ProtocolHandler()
+initial_resource_list = 'initial_resources.txt'
+add_resource_list = 'add_resources.txt'
 
 
 def arguement_parser():
     parser = argparse.ArgumentParser(description='Create a socket server')
     parser.add_argument('-p', "--port", type=int, help='Port Number to use for the server', required=True)
+    parser.add_argument('-f', "--file_count", type=int, help='Number of files in the initial list', required=False)
     args = parser.parse_args()
     return args
 
@@ -29,10 +34,35 @@ def read_config():
     return cfg
 
 
+def read_resource_txt(filename):
+    data = open(filename, 'r').read().replace('\r', '').split('\n')
+    search_list = []
+    for index in range(len(data)):
+        if len(data[index]) > 0 and data[index][0] != '#':
+            search_list.append(data[index])
+
+    return search_list
+
+
+def format_filename(file_list):
+    filem = []
+    for filex in file_list:
+        filem.append('_'.join(re.findall('[A-Za-z0-9_]+', filex)))
+    return filem
+
+
+def select_random_files(file_list, length):
+    selected_files = []
+    for i in range(length):
+        selected_files.append(file_list.pop(int(random.random() * 1000) % len(file_list)))
+
+    return selected_files
+
+
 node = AsyncNode()
 args = arguement_parser()
 CONFIG = read_config()
-chord = Chord(node.get_address(), 64000)
+chord = Chord(node.get_address(), 2**(4*10))
 
 
 @node.on('message')
@@ -86,11 +116,15 @@ def bootstrap_registration():
     # Register with Bootstrap server
     node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(), CONFIG.username), event='register')
 
+    node_file_list = format_filename(
+        select_random_files(read_resource_txt(initial_resource_list), args.file_count or 7))
+    chord.initialize_files(node_file_list)
+
 
 @node.on('stop')
 def deregister():
     for addr in chord.get_peer_list():
-        node.send_data(addr,protocol.update_finger_request(protocol.LEAVE,node.address,chord.get_nodeid()))
+        node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()))
 
 
 if __name__ == '__main__':
