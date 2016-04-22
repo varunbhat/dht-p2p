@@ -10,6 +10,7 @@ class Chord:
     node_addressmap = {}
     successor = None
     predecessor = None
+    node_filemap = {}
 
     _NODE_COUNT = 0
 
@@ -20,6 +21,9 @@ class Chord:
 
     def generate_id(self, address):
         return int(hashlib.sha1('%s:%d' % address).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
+
+    def generate_file_id(self, filename):
+        return int(hashlib.sha1(filename).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
 
     def get_nodeid(self):
         return self.NODE_ID
@@ -70,6 +74,10 @@ class Chord:
 
     def get_successor(self):
         return self.successor.values()[0]
+
+    def initialize_files(self, file_list):
+        for filex in file_list:
+            self.node_filemap[self.generate_file_id(filex)] = filex
 
     def generate_finger_table(self):
         ids = self.node_addressmap.keys()
