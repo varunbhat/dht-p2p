@@ -39,16 +39,26 @@ chord = Chord(node.get_address(), 64000)
 def echoMessage(data, sock, address):
     response = protocol.parse_response(data)
     if response is not None:
-        node.startevent(response['type'], response)
-
+        node.startevent(response['type'], response, sock)
     print data
 
 
-@node.on('join_request_generate')
+@node.on('UPFIN')
+def join_request(request, sock):
+    if not request['is_response']:
+        if not request['is_leaving']:
+            chord.add_node(request['clients'])
+        else:
+            chord.delete_node(request['clients'])
+        node.send_data(None, protocol.update_finger_response(0), sock=sock)
+
+
+@node.on('join_request')
 def send_join_requests(clientlist):
-    chord.generate_finger_table(clientlist)
+    chord.initialize_range(clientlist)
     for addr in chord.get_peer_list():
-        node.send_data(addr, protocol.join_request(node.get_address()))
+        node.send_data(addr, protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()))
+        # TODO: Update Leave
 
 
 @node.on('register')
@@ -66,7 +76,7 @@ def bootstrap_registration(data, *args, **kwargs):
     response = protocol.parse_response(
         node.send_data(CONFIG.bs_address, protocol.list_all(CONFIG.username), no_thread=True))
     clientlist = response['clients']
-    node.startevent('join_request_generate', clientlist)
+    node.startevent('join_request', clientlist)
 
 
 @node.on('start')
@@ -75,6 +85,12 @@ def bootstrap_registration():
     logging.debug('Using sha1 node id:%d' % (chord.get_nodeid()))
     # Register with Bootstrap server
     node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(), CONFIG.username), event='register')
+
+
+@node.on('stop')
+def deregister():
+    for addr in chord.get_peer_list():
+        node.send_data(addr,protocol.update_finger_request(protocol.LEAVE,node.address,chord.get_nodeid()))
 
 
 if __name__ == '__main__':
