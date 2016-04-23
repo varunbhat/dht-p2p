@@ -62,7 +62,7 @@ def select_random_files(file_list, length):
 
 
 args = arguement_parser()
-node = AsyncNode(address=('127.0.0.1',args.port))
+node = AsyncNode(address=('127.0.0.1', args.port))
 CONFIG = read_config()
 chord = Chord(node.get_address(), 2 ** (4 * 10))
 
@@ -116,10 +116,12 @@ def bootstrap_registration(data, *args, **kwargs):
     response = protocol.parse_response(data)
     # If Registraton failed, De register and Re register
     if response['error_code'] == 9998:
-        node.send_data(CONFIG.bs_address, protocol.deregister_ip_request(node.get_address(), 'ALPHA'))
+        node.send_data(CONFIG.bs_address, protocol.deregister_ip_request(node.get_address(), 'ALPHA'), no_thread=True)
         node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(), 'ALPHA'), event='register',
                        retry_count=1)
         return
+
+    print response
 
     # Get all members from the server
     response = protocol.parse_response(
@@ -139,15 +141,51 @@ def bootstrap_registration():
         select_random_files(read_resource_txt(initial_resource_list), args.file_count or 7))
     chord.initialize_files(node_file_list)
 
-    time.sleep(2)
+    # node.send_data(chord.successor,)
+
+
+@node.on('loop')
+def monitor_commands():
+    ip, port = node.get_address()
+    input_read = raw_input('%s@%s:%d %s> ' % (CONFIG.username, ip, port, chord.get_nodeid()))
+    input_read = input_read.lower()
+
+    try:
+        if input_read == 'details':
+            print 'IP     :', node.get_address()
+            print 'KEY    :', chord.get_nodeid()
+        elif input_read == 'fingertable':
+            for key, addr in chord.get_finger_table().iteritems():
+                print 'ID: ', str(key).zfill(15), 'Addr:', addr
+        elif input_read == 'entries':
+            if len(chord.get_node_filemap()) > 0:
+                for key,name in  chord.get_node_filemap().iteritems():
+                    print str(key).zfill(15),':',name
+            else:
+                print 'Empty'
+        elif input_read == 'keytable':
+            if chord.get_peer_filemap():
+                for key, name in chord.get_peer_filemap().iteritems():
+                    print str(key).zfill(15), ':', name
+            else:
+                print 'Empty'
+        elif input_read == 'exit':
+            node.stop()
+            return
+        elif input_read == 'exitall':
+            node.stop()
+            return
+    except Exception, e:
+        print e
+        pass
 
 
 @node.on('stop')
 def deregister():
     for addr in chord.get_peer_list():
         node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()))
-    node.send_data(CONFIG.bs_address,protocol.deregister_ip_request(node.address,CONFIG.username))
+    node.send_data(CONFIG.bs_address, protocol.deregister_ip_request(node.address, CONFIG.username))
 
 
 if __name__ == '__main__':
-    node.start(ip='127.0.0.1',port=args.port)
+    node.start(ip='127.0.0.1', port=args.port)
