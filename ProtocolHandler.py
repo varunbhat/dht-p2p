@@ -129,6 +129,7 @@ class ProtocolHandler:
                 response['hops'] = int(response_validate.group('hops'))
                 response['search_id'] = response_validate.group('search_uid_req') if response_validate.group(
                     'search_uid_req') is not None else str(uuid.uuid4())
+
         elif response_type == 'UPFIN':
             response['type'] = response_type
             if response_validate.group('upfin_resp') == 'OK':
@@ -146,17 +147,19 @@ class ProtocolHandler:
             response['type'] = response_type
             if response_validate.group('getky_resp') == 'OK':
                 response['is_response'] = True
-                response['clients'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
-                                                 response_validate.group(
-                                                     'getkey_client_details') if response_validate.group(
-                                                     'getkey_client_details') is not None else '')
-                response['keymap'] = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ ([a-zA-Z0-9]+) ([a-zA-Z0-9]+)',
-                                                response_validate.group(
-                                                    'getkey_client_details') if response_validate.group(
-                                                    'getkey_client_details') is not None else '')
+                response['addr_keymap'] = re.findall(
+                    r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) (\d+) ([a-zA-Z0-9]+) ([a-zA-Z0-9]+)',
+                    response_validate.group('getkey_client_details')
+                    if response_validate.group('getkey_client_details') is not None else '')
+                res = []
+                for val in response['addr_keymap']:
+                    res.append((((val[0]), int(val[1])), val[2:4]))
+
+                response['addr_keymap'] = res
             else:
                 response['is_response'] = False
                 response['key'] = response_validate.group('getkey_key')
+
         elif response_type == 'GIVEKY':
             response['type'] = response_type
             if response_validate.group('giveky_resp') == 'OK':
@@ -164,14 +167,16 @@ class ProtocolHandler:
                 response['key'] = response_validate.group('givekey_key')
             else:
                 response['is_response'] = False
-                response['clients'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
-                                                 response_validate.group(
-                                                     'givekey_client_details') if response_validate.group(
-                                                     'givekey_client_details') is not None else '')
-                response['keymap'] = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ ([a-zA-Z0-9]+) ([a-zA-Z0-9]+)',
-                                                response_validate.group(
-                                                    'givekey_client_details') if response_validate.group(
-                                                    'givekey_client_details') is not None else '')
+                response['addr_keymap'] = re.findall(
+                    r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) (\d+) ([a-zA-Z0-9]+) ([a-zA-Z0-9]+)',
+                    response_validate.group('givekey_client_details')
+                    if response_validate.group('givekey_client_details') is not None else '')
+                res = []
+                for val in response['addr_keymap']:
+                    res.append((((val[0]), int(val[1])), val[2:4]))
+
+                response['addr_keymap'] = res
+
         elif response_type == 'ADD':
             response['type'] = response_type
             if response_validate.group('add_resp') == 'OK':
@@ -260,21 +265,19 @@ class ProtocolHandler:
     def get_key_request(self, key):
         return self._string_len_prepend('GETKY %s' % key)
 
-    def get_key_response(self, addresses, keymap):
-        data = ''
-        for i in range(len(addresses)):
-            temp = (addresses[i] + keymap[i])
-            temp = ' '.join([str(i) for i in temp])
-            data += ' ' + temp
-        return self._string_len_prepend('GETKYOK %d%s' % (len(addresses), data))
+    def get_key_response(self, addr_keymap):
+        data = []
+        for addr,keymap in addr_keymap:
+            data.append('%s %d %s %s'%(addr[0],addr[1],keymap[0],keymap[1]))
+        data = ' '.join(data)
+        return self._string_len_prepend('GETKYOK %d %s' % (len(addr_keymap), data))
 
-    def give_key_request(self, addresses, keymap):
-        data = ''
-        for i in range(len(addresses)):
-            temp = (addresses[i] + keymap[i])
-            temp = ' '.join([str(i) for i in temp])
-            data += ' ' + temp
-        return self._string_len_prepend('GIVEKY %d%s' % (len(addresses), data))
+    def give_key_request(self, addr_keymap):
+        data = []
+        for addr,keymap in addr_keymap:
+            data.append('%s %d %s %s'%(addr[0],addr[1],keymap[0],keymap[1]))
+        data = ' '.join(data)
+        return self._string_len_prepend('GETKYOK %d %s' % (len(addr_keymap), data))
 
     def give_key_response(self, err_code):
         return self._string_len_prepend('GIVEKYOK %d' % (err_code))
