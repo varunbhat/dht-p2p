@@ -11,6 +11,7 @@ class Chord:
     successor = None
     predecessor = None
     node_filemap = {}
+    peer_filemap = {}
 
     _NODE_COUNT = 0
 
@@ -47,6 +48,8 @@ class Chord:
 
         if type(clientlist) == tuple:
             self.clientlist = [clientlist]
+        else:
+            self.clientlist = clientlist
 
         for client in self.clientlist:
             id_list[client] = self.generate_id(client)
@@ -64,6 +67,12 @@ class Chord:
         self.generate_finger_table()
 
         return self.id_space
+
+    def get_node_filemap(self):
+        return self.node_filemap
+
+    def get_peer_filemap(self):
+        return self.peer_filemap
 
     def get_successor(self):
         return self.successor.values()[0]
