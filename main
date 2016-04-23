@@ -64,7 +64,7 @@ def select_random_files(file_list, length):
 args = arguement_parser()
 node = AsyncNode(address=('127.0.0.1', args.port))
 CONFIG = read_config()
-chord = Chord(node.get_address(), 2 ** (4 * 10))
+chord = Chord(node.get_address(), 2 ** (4 * 4))
 
 
 @node.on('message')
@@ -107,12 +107,12 @@ def get_file_keys(request, sock):
 def send_join_requests(clientlist):
     chord.initialize_range(clientlist)
     for addr in chord.get_peer_list():
-        node.send_data(addr, protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()))
+        if addr != node.get_address():
+            node.send_data(addr, protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()))
 
 
 @node.on('register')
 def bootstrap_registration(data, *args, **kwargs):
-    global NODE_ID
     response = protocol.parse_response(data)
     # If Registraton failed, De register and Re register
     if response['error_code'] == 9998:
@@ -155,12 +155,19 @@ def monitor_commands():
             print 'IP     :', node.get_address()
             print 'KEY    :', chord.get_nodeid()
         elif input_read == 'fingertable':
-            for key, addr in chord.get_finger_table().iteritems():
-                print 'ID: ', str(key).zfill(15), 'Addr:', addr
+            ft = chord.get_finger_table()
+            ids =ft.keys()
+            ids.sort()
+
+            for key in ids:
+                print 'ID: ', str(key).zfill(15), 'Addr:', ft[key]
+            print 'Predecessor:', chord.get_predecessor()
+            print 'Successor  :', chord.get_successor()
+            print 'Span       :', chord.get_span()
         elif input_read == 'entries':
             if len(chord.get_node_filemap()) > 0:
-                for key,name in  chord.get_node_filemap().iteritems():
-                    print str(key).zfill(15),':',name
+                for key, name in chord.get_node_filemap().iteritems():
+                    print str(key).zfill(15), ':', name
             else:
                 print 'Empty'
         elif input_read == 'keytable':

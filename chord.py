@@ -35,6 +35,9 @@ class Chord:
     def get_peer_list(self):
         return list(set(self.finger_table.values()))
 
+    def get_span(self):
+        return self.id_space
+
     def add_node(self, address):
         self.initialize_range(self.node_addressmap.values() + [address])
 
@@ -61,8 +64,9 @@ class Chord:
 
         self.id_space = (ids[ids.index(self.NODE_ID) - 1] + 1, self.NODE_ID + 1)
 
-        self.successor = ids[(ids.index(self.NODE_ID) + 1) % len(ids)]
-        self.predecessor = ids[ids.index(self.NODE_ID) - 1]
+        self.successor = {ids[(ids.index(self.NODE_ID) + 1) % len(ids)]: self.node_addressmap[
+            ids[(ids.index(self.NODE_ID) + 1) % len(ids)]]}
+        self.predecessor = {ids[ids.index(self.NODE_ID) - 1]: self.node_addressmap[ids[ids.index(self.NODE_ID) - 1]]}
 
         self.generate_finger_table()
 
@@ -77,6 +81,9 @@ class Chord:
     def get_successor(self):
         return self.successor.values()[0]
 
+    def get_predecessor(self):
+        return self.predecessor.values()[0]
+
     def initialize_files(self, file_list):
         for filex in file_list:
             self.node_filemap[self.generate_file_id(filex)] = filex
@@ -87,10 +94,13 @@ class Chord:
 
         ids_ov = ids + [(2 ** self._NODE_COUNT_MANTISSA) + i for i in ids]
 
-        for k in range(self._NODE_COUNT_MANTISSA):
-            finger_theoritical = ((self.NODE_ID + 2 ** k) + 1) % (2 ** self._NODE_COUNT_MANTISSA)
+        for k in range(self._NODE_COUNT_MANTISSA + 1):
+            finger_theoritical = ((self.NODE_ID + 2 ** k) - 1) % (2 ** self._NODE_COUNT_MANTISSA)
             for i in ids_ov:
                 if finger_theoritical <= i:
                     break
-            self.finger_table[i % (2 ** self._NODE_COUNT_MANTISSA)] = self.node_addressmap[
+            if i % (2 ** self._NODE_COUNT_MANTISSA) == self.NODE_ID:
+                continue
+
+            self.finger_table[finger_theoritical] = self.node_addressmap[
                 i % (2 ** self._NODE_COUNT_MANTISSA)]
