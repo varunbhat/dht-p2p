@@ -45,10 +45,9 @@ class AsyncNode:
 
         self._run_event_handler(self._get_event_handler('start'))
 
-        while True:
+        while not self.stop_flag:
             try:
                 self._run_event_handler(self._get_event_handler('loop'))
-                time.sleep(.5)
             except KeyboardInterrupt:
                 self.stop()
                 break
@@ -198,7 +197,7 @@ class AsyncNode:
     def startevent(self, event, *args, **kwargs):
         self.sprawn_thread(self._run_event_handler(self._get_event_handler(event), *args, **kwargs))
 
-    def send_data(self, addr, message, callback=None, event=None,sock=None, no_thread=False, *args, **kwargs):
+    def send_data(self, addr, message, callback=None, event=None, sock=None, no_thread=False, *args, **kwargs):
         try:
             if sock is None:
                 sock = self._get_socket()
