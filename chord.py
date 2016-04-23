@@ -11,7 +11,7 @@ class Chord:
     successor = None
     predecessor = None
     node_filemap = {}
-    peer_filemap = {}
+    peer_filemap = []
 
     _NODE_COUNT = 0
 
@@ -31,9 +31,6 @@ class Chord:
 
     def get_finger_table(self):
         return self.finger_table
-
-    def get_peer_list(self):
-        return list(set(self.finger_table.values()))
 
     def get_span(self):
         return self.id_space
@@ -55,11 +52,9 @@ class Chord:
             self.clientlist = clientlist
 
         for client in self.clientlist:
-            id_list[client] = self.generate_id(client)
+            self.node_addressmap[self.generate_id(client)] = client
 
-        self.node_addressmap = {v: k for k, v in id_list.items()}
-
-        ids = id_list.values()
+        ids = self.node_addressmap.keys()
         ids.sort()
 
         self.id_space = (ids[ids.index(self.NODE_ID) - 1] + 1, self.NODE_ID + 1)
@@ -75,8 +70,16 @@ class Chord:
     def get_node_filemap(self):
         return self.node_filemap
 
-    def get_peer_filemap(self):
-        return self.peer_filemap
+    def get_peer_filemap(self,key=None):
+        if key == None:
+            return self.peer_filemap
+        else:
+            retval = []
+            for addr,(id,file) in self.peer_filemap:
+                if  id > key:
+                    continue
+                retval.append((addr,(id,file)))
+            return retval
 
     def get_successor(self):
         return self.successor.values()[0]
@@ -84,9 +87,38 @@ class Chord:
     def get_predecessor(self):
         return self.predecessor.values()[0]
 
+    def get_max_dist_address(self, fileid):
+        val = fileid - self.NODE_ID + 1 + (
+            2 ** self._NODE_COUNT_MANTISSA) if fileid - self.NODE_ID + 1 < 0 else fileid - self.NODE_ID + 1
+
+        n = int(math.floor(math.log(val, 2)))
+        if len(self.finger_table) > 0:
+            return self.finger_table[n]
+
     def initialize_files(self, file_list):
         for filex in file_list:
-            self.node_filemap[self.generate_file_id(filex)] = filex
+            fileid = self.generate_file_id(filex)
+            self.node_filemap[fileid] = filex
+
+    def in_range(self, key):
+        minval, maxval = self.id_space
+
+        key = (key - minval) % (2 ** self._NODE_COUNT_MANTISSA)
+        maxval = (maxval - 1 - minval) % (2 ** self._NODE_COUNT_MANTISSA)
+        minval -= minval
+
+        if key >= 0 and key <= maxval:
+            return True
+        else:
+            return False
+
+    def peer_file_add(self, key, filename, address):
+        self.peer_filemap.append((address,(key,filename)))
+
+        # if self.peer_filemap.get(key) is not None:
+        #     self.peer_filemap[key].append((filename, address))
+        # else:
+        #     self.peer_filemap[key] = [(filename, address)]
 
     def generate_finger_table(self):
         ids = self.node_addressmap.keys()
@@ -99,8 +131,5 @@ class Chord:
             for i in ids_ov:
                 if finger_theoritical <= i:
                     break
-            if i % (2 ** self._NODE_COUNT_MANTISSA) == self.NODE_ID:
-                continue
 
-            self.finger_table[finger_theoritical] = self.node_addressmap[
-                i % (2 ** self._NODE_COUNT_MANTISSA)]
+            self.finger_table[k] = self.node_addressmap[i % (2 ** self._NODE_COUNT_MANTISSA)]
