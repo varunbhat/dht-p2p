@@ -70,15 +70,15 @@ class Chord:
     def get_node_filemap(self):
         return self.node_filemap
 
-    def get_peer_filemap(self,key=None):
+    def get_peer_filemap(self, key=None):
         if key == None:
             return self.peer_filemap
         else:
             retval = []
-            for addr,(id,file) in self.peer_filemap:
-                if  id > key:
+            for addr, (id, file) in self.peer_filemap:
+                if self.in_range(id, (key + 1, self.id_space[1])):
                     continue
-                retval.append((addr,(id,file)))
+                retval.append((addr, (id, file)))
             return retval
 
     def get_successor(self):
@@ -100,25 +100,33 @@ class Chord:
             fileid = self.generate_file_id(filex)
             self.node_filemap[fileid] = filex
 
-    def in_range(self, key):
-        minval, maxval = self.id_space
+    def in_range(self, key, key_range=None):
+        if key_range == None:
+            minval, maxval = self.id_space
+        else:
+            minval, maxval = key_range
 
         key = (key - minval) % (2 ** self._NODE_COUNT_MANTISSA)
         maxval = (maxval - 1 - minval) % (2 ** self._NODE_COUNT_MANTISSA)
         minval -= minval
+
+        print 'In Range:', key, (minval, maxval)
 
         if key >= 0 and key <= maxval:
             return True
         else:
             return False
 
-    def peer_file_add(self, key, filename, address):
-        self.peer_filemap.append((address,(key,filename)))
+    def peer_file_del(self, key):
+        temp = self.peer_filemap
+        for i in range(len(self.peer_filemap)):
+            addr, (id, filename) = self.peer_filemap[i]
+            if not self.in_range(id, (key + 1, self.id_space[1])):
+                del temp[i]
+        self.peer_filemap = temp
 
-        # if self.peer_filemap.get(key) is not None:
-        #     self.peer_filemap[key].append((filename, address))
-        # else:
-        #     self.peer_filemap[key] = [(filename, address)]
+    def peer_file_add(self, key, filename, address):
+        self.peer_filemap.append((address, (key, filename)))
 
     def generate_finger_table(self):
         ids = self.node_addressmap.keys()

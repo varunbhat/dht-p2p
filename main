@@ -105,8 +105,8 @@ def get_file_keys(request, sock):
 
     if request['key'] != chord.get_nodeid():
         node_req_files = chord.get_peer_filemap(int(request['key']))
-        print node_req_files
         node.send_data(None, protocol.get_key_response(node_req_files), sock=sock, no_thread=True)
+        chord.peer_file_del(int(request['key']))
     else:
         node.send_data(None,protocol.get_key_response([]),sock=sock)
 

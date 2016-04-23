@@ -164,6 +164,7 @@ class AsyncNode:
     def _socket_receive(self, sock, callback=None, event=None, addr=None, *args, **kwargs):
         try:
             data = sock.recv(1024 * 8)
+            logging.debug('Response Received: %s' % data)
         except socket.timeout:
             sock.close()
             if callback is not None:
