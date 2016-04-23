@@ -75,6 +75,19 @@ def echoMessage(data, sock, address):
     print data
 
 
+@node.on('ADD')
+def add_request(request, sock):
+    if not request['is_response']:
+        key, filename = request['keymap']
+        key = int(key)
+
+        if chord.in_range(key):
+            chord.peer_file_add(key, filename, request['clients'])
+            node.send_data(request['clients'], protocol.add_response(0))
+        else:
+            node.send_data(chord.get_max_dist_address(key), protocol.add_request(node.get_address(), (key, filename)))
+
+
 @node.on('UPFIN')
 def join_request(request, sock):
     if not request['is_response']:
@@ -87,28 +100,32 @@ def join_request(request, sock):
 
 @node.on('GETKY')
 def get_file_keys(request, sock):
-    if request['is_Response']:
-        print 'Invalid_response'
+    if request['is_response']:
         return
 
     if request['key'] != chord.get_nodeid():
-        getkey_resp = protocol.parse_response(
-            node.send_data(chord.successor, protocol.get_key_request(request['key']), no_thread=True))
-
-        node_req_files = chord.get_file_keymap(request['key'])
-
-        if node_req_files is not None:
-            getkey_resp['keymap'] += node_req_files
+        node_req_files = chord.get_peer_filemap(int(request['key']))
+        print node_req_files
+        node.send_data(None, protocol.get_key_response(node_req_files), sock=sock, no_thread=True)
     else:
-        return protocol.get_key_response([])
+        node.send_data(None,protocol.get_key_response([]),sock=sock)
 
 
 @node.on('join_request')
 def send_join_requests(clientlist):
     chord.initialize_range(clientlist)
-    for addr in chord.get_peer_list():
-        if addr != node.get_address():
-            node.send_data(addr, protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()))
+    if chord.get_successor() != node.get_address():
+        node.send_data(chord.get_successor(),
+                       protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()))
+        node.send_data(chord.get_predecessor(),
+                       protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()))
+
+        resp = node.send_data(chord.get_successor(), protocol.get_key_request(chord.get_nodeid()), no_thread=True)
+        print resp
+        resp = protocol.parse_response(resp)
+        if resp != None:
+            for addr, (key, filename) in resp['addr_keymap']:
+                chord.peer_file_add(int(key), filename, addr)
 
 
 @node.on('register')
@@ -120,8 +137,6 @@ def bootstrap_registration(data, *args, **kwargs):
         node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(), 'ALPHA'), event='register',
                        retry_count=1)
         return
-
-    print response
 
     # Get all members from the server
     response = protocol.parse_response(
@@ -139,9 +154,12 @@ def bootstrap_registration():
 
     node_file_list = format_filename(
         select_random_files(read_resource_txt(initial_resource_list), args.file_count or 7))
+
+    time.sleep(0.5)
     chord.initialize_files(node_file_list)
 
-    # node.send_data(chord.successor,)
+    for key, filemap in chord.get_node_filemap().iteritems():
+        node.send_data(chord.get_max_dist_address(key), protocol.add_request(node.get_address(), (key, filemap)))
 
 
 @node.on('loop')
@@ -156,11 +174,13 @@ def monitor_commands():
             print 'KEY    :', chord.get_nodeid()
         elif input_read == 'fingertable':
             ft = chord.get_finger_table()
-            ids =ft.keys()
+            ids = ft.keys()
             ids.sort()
 
+            disp_len = len(str(max(ids)))
+
             for key in ids:
-                print 'ID: ', str(key).zfill(15), 'Addr:', ft[key]
+                print 'ID: ', str(key).zfill(disp_len), 'Addr:', ft[key]
             print 'Predecessor:', chord.get_predecessor()
             print 'Successor  :', chord.get_successor()
             print 'Span       :', chord.get_span()
@@ -171,9 +191,10 @@ def monitor_commands():
             else:
                 print 'Empty'
         elif input_read == 'keytable':
-            if chord.get_peer_filemap():
-                for key, name in chord.get_peer_filemap().iteritems():
-                    print str(key).zfill(15), ':', name
+            files = chord.get_peer_filemap()
+            if len(files) > 0:
+                for addr, (key,filename) in files:
+                    print str(key).zfill(15), ':', addr, filename
             else:
                 print 'Empty'
         elif input_read == 'exit':
@@ -189,8 +210,11 @@ def monitor_commands():
 
 @node.on('stop')
 def deregister():
-    for addr in chord.get_peer_list():
-        node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()))
+    # node.send_data(chord.successor, protocol.give_key_request(chord.get_peer_filemap()), no_thread=True)
+
+    for addr in [chord.get_predecessor(), chord.get_successor()]:
+        if addr != node.get_address():
+            node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()))
     node.send_data(CONFIG.bs_address, protocol.deregister_ip_request(node.address, CONFIG.username))
 
 
