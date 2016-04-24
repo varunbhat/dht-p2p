@@ -2,9 +2,8 @@ import Queue
 import logging
 import socket
 import threading
-import time
+
 import requests
-import re
 
 
 class AsyncNode:
@@ -149,7 +148,7 @@ class AsyncNode:
     def _message_processor(self, sock, src_address):
         try:
             data = sock.recv(1024)
-            logging.debug('Request Received: %s' % data)
+            # logging.debug('Request Received: %s' % data)
         except socket.timeout:
             self._run_event_handler(self._get_event_handler('message'), '', sock, src_address, err=True,
                                     status={'reason': 'timeout'})
@@ -159,12 +158,13 @@ class AsyncNode:
         if response is not None:
             logging.debug('Response sent: %s' % response)
             sock.send(response)
-        sock.close()
+            # sock.close()
 
     def _socket_receive(self, sock, callback=None, event=None, addr=None, *args, **kwargs):
         try:
             data = sock.recv(1024 * 8)
-            logging.debug('Response Received: %s' % data)
+            if not (kwargs.get('silent') is not None and kwargs.get('silent') == True):
+                logging.debug('Response Received: %s' % data)
         except socket.timeout:
             sock.close()
             if callback is not None:
@@ -196,14 +196,15 @@ class AsyncNode:
         return sock
 
     def startevent(self, event, *args, **kwargs):
-        self.sprawn_thread(self._run_event_handler(self._get_event_handler(event), *args, **kwargs))
+        self.sprawn_thread(self._get_event_handler(event), *args, **kwargs)
 
     def send_data(self, addr, message, callback=None, event=None, sock=None, no_thread=False, *args, **kwargs):
         try:
             if sock is None:
                 sock = self._get_socket()
                 sock.connect(addr)
-                logging.debug('Socket Sending Data Destination:%s Data:%s' % (addr, message))
+                if not (kwargs.get('silent') is not None and kwargs.get('silent') == True):
+                    logging.debug('Socket Sending Data Destination:%s Data:%s' % (addr, message))
                 sock.send(message)
             else:
                 sock.send(message)
