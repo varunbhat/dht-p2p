@@ -8,8 +8,8 @@ class Chord:
     finger_table = {}
     clientlist = []
     node_addressmap = {}
-    successor = None
-    predecessor = None
+    successor = {}
+    predecessor = {}
     node_filemap = {}
     peer_filemap = []
 
@@ -88,8 +88,7 @@ class Chord:
         return self.predecessor.values()[0]
 
     def get_max_dist_address(self, fileid):
-        val = fileid - self.NODE_ID + 1 + (
-            2 ** self._NODE_COUNT_MANTISSA) if fileid - self.NODE_ID + 1 < 0 else fileid - self.NODE_ID + 1
+        val = (fileid - self.NODE_ID + 1) % (2 ** self._NODE_COUNT_MANTISSA)
 
         n = int(math.floor(math.log(val, 2)))
         if len(self.finger_table) > 0:
