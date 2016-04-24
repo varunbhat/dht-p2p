@@ -23,7 +23,7 @@ class ProtocolHandler:
                        r'(?<=UPFIN) (?P<upfin_type>[01]) (?P<upfin_node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ip_hash>[A-Za-z0-9\-]+)|' \
                        r'(?<=UPFIN)(?P<upfin_resp>OK) (?P<error_code_upfin>-?\d+)|' \
                        r'(?<=GETKY) (?P<getkey_key>[a-zA-Z0-9_]+)|' \
-                       r'(?<=GETKY)(?P<getky_resp>OK) (?P<get_key_resp_num>\d+) (?P<getkey_client_details>( *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+ [a-zA-Z0-9_]+)+)|' \
+                       r'(?<=GETKY)(?P<getky_resp>OK) (?P<get_key_resp_num>\d+) ?(?P<getkey_client_details>( *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+ [a-zA-Z0-9_]+)+)?|' \
                        r'(?<=GIVEKY) (?P<givekey_resp_num>\d+) (?P<givekey_client_details>( *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+ [a-zA-Z0-9_]+)+)|' \
                        r'(?<=GIVEKY)(?P<giveky_resp>OK) (?P<givekey_key>[a-zA-Z0-9_]+)|' \
                        r'(?<=ADD) (?P<add_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<add_key>[a-zA-Z0-9_]+) (?P<add_entry>[a-zA-Z0-9_]+)|' \
