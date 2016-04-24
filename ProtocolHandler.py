@@ -31,9 +31,12 @@ class ProtocolHandler:
                        r' (?P<unspecified_data>.*)' \
                        r')'
 
+        if data is None:
+            return None
+
         response_validate = re.search(regex_string, data)
         if response_validate is None:
-            logging.error('Invalid Request.Data: %s' % (data))
+            # logging.error('Invalid Request.Data: %s' % (data))
             return None
 
         response_type = response_validate.group(1)
@@ -139,7 +142,7 @@ class ProtocolHandler:
             else:
                 response['is_response'] = False
                 response['hash'] = response_validate.group('ip_hash')
-                response['is_leaving'] = True if response_validate.group('upfin_type') == 1 else False
+                response['is_leaving'] = True if response_validate.group('upfin_type') == '1' else False
                 response['clients'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
                                                  response_validate.group(
                                                      'upfin_node_address') if response_validate.group(
