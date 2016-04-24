@@ -1,19 +1,17 @@
 #!/usr/bin/env python
-import hashlib
-
+import ConfigParser
+import argparse
+import json
+import logging
+import random
 import time
 
+import re
 from ProtocolHandler import ProtocolHandler
 from asyncsocket import AsyncNode
-import logging
-import argparse
-import ConfigParser
-import random
-import re
-
 from chord import Chord
 
-logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s] %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s %(threadName)s] %(message)s')
 config = ConfigParser.RawConfigParser()
 config.read('node.cfg')
 protocol = ProtocolHandler()
@@ -67,12 +65,51 @@ CONFIG = read_config()
 chord = Chord(node.get_address(), 2 ** (4 * 4))
 
 
+@node.on('sync_serv')
+def sync_serv(*args, **kwargs):
+    counter = 0
+    while not node.stop_flag:
+        time.sleep(1)
+        counter += 1
+        if counter != 10:
+            continue
+
+        counter = 0
+
+        if chord.get_successor() == node.get_address():
+            continue
+
+        for addr in [chord.get_successor() , chord.get_predecessor()]:
+            resp = node.send_data(addr, json.dumps({'message': 'sync_req'}), no_thread=True, silent=True)
+            try:
+                resp = json.loads(resp)
+            except ValueError:
+                continue
+
+            if resp['message'] == 'sync_resp':
+                if len(resp['clients']) != len(chord.node_addressmap.values()):
+                    node.send_data(CONFIG.bs_address, protocol.list_all(CONFIG.username), event='message')
+                    chord.initialize_range(resp['clients'])
+
+
+@node.on('handler')
+def handler(data, sock, *args, **kwargs):
+    if data != '' or data is not None:
+        data = json.loads(data)
+
+    if data['message'] == 'sync_req':
+        if sock is None:
+            logging.debug('Socket malfunction')
+        node.send_data(None, json.dumps({'message': 'sync_resp', 'clients': chord.node_addressmap.values()}), sock=sock,
+                       silent=True)
+
+
 @node.on('message')
 def echoMessage(data, sock=None, address=None, *args, **kwargs):
     response = protocol.parse_response(data)
     if response is not None:
         return node.startevent(response['type'], response, sock)
-    print data
+    node.startevent('handler', data, sock)
 
 
 @node.on('ADD')
@@ -92,9 +129,12 @@ def add_request(request, sock):
 def join_request(request, sock):
     if not request['is_response']:
         if not request['is_leaving']:
+            logging.debug('Adding Client to the network: %s' % (str(request['clients'])))
             chord.add_node(request['clients'])
         else:
+            logging.debug('Deleting Client to the network: %s' % (str(request['clients'])))
             chord.delete_node(request['clients'])
+
         node.send_data(None, protocol.update_finger_response(0), sock=sock)
 
 
@@ -105,6 +145,7 @@ def get_file_keys(request, sock):
 
     logging.debug('Getkey request received')
 
+    # Successor Node and the present node are the same. so dont do anything
     if request['key'] != chord.get_nodeid():
         node_req_files = chord.get_peer_filemap(int(request['key']))
         logging.debug('Files returned for the new predecessor Node: %s' % (str(node_req_files)))
@@ -127,7 +168,7 @@ def get_response(response, *args, **kwargs):
                        protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()),
                        no_thread=True)
 
-        logging.debug('Updating Predecessor:%s'%(str(chord.get_predecessor())))
+        logging.debug('Updating Predecessor:%s' % (str(chord.get_predecessor())))
         # Update the successor in the predecessor node
         node.send_data(chord.get_predecessor(),
                        protocol.update_finger_request(protocol.JOIN, node.get_address(), chord.get_nodeid()),
@@ -143,15 +184,11 @@ def get_response(response, *args, **kwargs):
             for addr, (key, filename) in resp['addr_keymap']:
                 chord.peer_file_add(int(key), filename, addr)
 
-        for key, filemap in chord.get_node_filemap().iteritems():
-            node.send_data(chord.get_max_dist_address(key), protocol.add_request(node.get_address(), (key, filemap)),
-                           no_thread=True)
-
 
 @node.on('REG')
 def register_details(response, sock, *args, **kwargs):
     if response['error_code'] == 9998:
-        logging.debug('Re-registering with Bootstrap server:%d' % (chord.get_nodeid()))
+        logging.debug('Re-registering with Bootstrap server: %s' % (str(CONFIG.bs_address)))
         node.send_data(CONFIG.bs_address, protocol.deregister_ip_request(node.get_address(), 'ALPHA'),
                        no_thread=True)
         node.send_data(CONFIG.bs_address, protocol.register_request(node.get_address(), 'ALPHA'),
@@ -181,10 +218,12 @@ def bootstrap_registration():
 
     # read the list of files from the initial list
     node_file_list = format_filename(
-        select_random_files(read_resource_txt(initial_resource_list), args.file_count or 7))
+        select_random_files(read_resource_txt(initial_resource_list), args.file_count or 1))
 
     # Initialize the files and store in the node List
     chord.initialize_files(node_file_list)
+
+    node.startevent('sync_serv')
 
 
 @node.on('loop')
@@ -222,6 +261,10 @@ def monitor_commands():
                     print str(key).zfill(15), ':', addr, filename
             else:
                 print 'Empty'
+        elif input_read == 'clients':
+            for key, val in chord.node_addressmap.iteritems():
+                print key, ': ', val
+
         elif input_read == 'exit':
             node.stop()
             return
@@ -236,10 +279,9 @@ def monitor_commands():
 @node.on('stop')
 def deregister():
     # node.send_data(chord.successor, protocol.give_key_request(chord.get_peer_filemap()), no_thread=True)
-
-    # for addr in [chord.get_predecessor(), chord.get_successor()]:
-    #     if addr != node.get_address():
-    #         node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()))
+    for addr in [chord.get_predecessor(), chord.get_successor()]:
+        if addr != node.get_address():
+            node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()))
     node.send_data(CONFIG.bs_address, protocol.deregister_ip_request(node.address, CONFIG.username))
 
 
