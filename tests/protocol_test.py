@@ -65,4 +65,4 @@ def write_test():
 
 if __name__ == '__main__':
     read_test()
-    write_test()
+    # write_test()

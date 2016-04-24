@@ -213,171 +213,179 @@ import re
 #     print client.ip,client.port
 
 
-import networkx as nx
-import matplotlib.pyplot as plt
-from BootstrapProtocol import BootstrapProtocol
-import socket
-import json
-import numpy as np
-import random
+# import networkx as nx
+# import matplotlib.pyplot as plt
+# from BootstrapProtocol import BootstrapProtocol
+# import socket
+# import json
+# import numpy as np
+# import random
+#
+# from PeerProtocol import PeerProtocol
+#
+# bp = BootstrapProtocol('ALPHA')
+# sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#
+#
+# def send(data, address, response=True):
+#     sock.sendto(data, address)
+#     if response:
+#         data = sock.recv(100000000)
+#         return data
+#     else:
+#         return None
+#
+#
+# def read_resource_txt():
+#     data = open('resources.txt', 'r').read().replace('\r', '').split('\n')
+#     search_list = []
+#     count = 1
+#     for index in range(len(data)):
+#         if len(data[index]) > 0 and data[index][0] != '#':
+#             search_list.append(data[index])
+#
+#     return search_list
+#
+#
+# def get_clients():
+#     return bp.parse_response(send(bp.list_all(), ("129.82.46.191", 10000)))['clients']
+#
+#
+# def get_network_config(clients):
+#     G = nx.DiGraph()
+#     for node in clients:
+#         G.add_node(node, addr=str(node))
+#
+#     for client in clients:
+#         resp = send('LISTO', client)
+#         resp = json.loads(resp)
+#         peers = resp['clients']
+#         edge = [(client, tuple(peer)) for peer in peers]
+#         G.add_edges_from(edge)
+#     return G
+#
+#
+# def node_degree(graph):
+#     degree = []
+#     for client in graph.nodes():
+#         degree.append(len(graph.predecessors(client)))
+#     return sum(degree) / float(len(degree))
+#
+#
+# def get_graph(graph, filename='test.png'):
+#     nx.draw_circular(graph)
+#     plt.savefig(filename)
+#     plt.show()
+#
+#
+# def set_file_count(clients, value):
+#     for client in clients:
+#         send('SET_FILE_COUNT ' + str(value), client)
+#
+#
+# def get_files(clients):
+#     result = []
+#     for client in clients:
+#         resp = send('GET_FILES', client)
+#         resp = json.loads(resp)
+#         result.append(resp['files'])
+#     return result
+#
+#
+# def plot_file_distribution(resources, file_distribution, filename):
+#     count = [0 for i in range(len(resources))]
+#
+#     for node_fil_arr in file_distribution:
+#         for lfile in node_fil_arr:
+#             count[resources.index(lfile)] += 1
+#
+#     plt.clf()
+#     y_pos = np.arange(len(resources))
+#     plt.bar(y_pos, count, align='center', alpha=0.5)
+#     # plt.xticks(y_pos, resources)
+#     plt.ylabel('Number of Nodes')
+#     plt.title('File Distribution')
+#     plt.savefig(filename)
+#
+#     plt.show()
+#     pass
+#
+#
+# def execute_search(resources, clients, ns):
+#     pp = PeerProtocol()
+#     for i in range(ns):
+#         for filex in resources:
+#             index = int(random.random() * 1000) % len(clients)
+#             ip, port = clients[index]
+#             send(pp.search_request(ip, port, filex, 0), clients[index], response=False)
+#             time.sleep(.5)
+#
+#
+# def calculate_1(clients):
+#     hops = []
+#     latency = []
+#     msg_count = []
+#     for client in clients:
+#         resp = json.loads(send('SEARCH_RESULTS', client))
+#         filename, start_time = [], []
+#         for name, timex, hop in resp['requests']:
+#             filename.append(name), start_time.append(timex)
+#         for res in resp['results']:
+#             name = res[0][2:-2]
+#             tx = start_time[filename.index(name)]
+#             hops.append(res[1])
+#             latency.append(abs(res[2] - tx))
+#
+#         msg_count.append(len(resp['results']) + len(resp['requests']))
+#     print "Hops     :", "Min:", min(hops), "Max:", max(hops), "average:", sum(hops) / float(len(hops)), "SD:", np.std(
+#         hops)
+#     print "Latency  :", "Min:", min(latency), "Max:", max(latency), "average:", sum(latency) / float(
+#         len(latency)), "SD:", np.std(latency)
+#     print "Msg Count:", "Min:", min(msg_count), "Max:", max(msg_count), "average:", sum(msg_count) / float(
+#         len(msg_count)), "SD:", np.std(
+#         msg_count)
+#
+#
+# def calculate_2(clients, resources):
+#     a = 2.
+#     dist = np.random.zipf(a, len(resources))
+#     dist = np.sort(dist)
+#     plt.clf()
+#     plt.plot(dist, range(len(resources)))
+#     plt.savefig('zipfs.png')
+#     plt.show()
+#
+#
+# if __name__ == '__main__':
+#     clients = get_clients()
+#     print "Number of Nodes:", len(clients)
+#     graph = get_network_config(clients)
+#
+#     degree = []
+#     for client in graph.nodes():
+#         degree.append(len(graph.predecessors(client)))
+#     nd1 = sum(degree) / float(len(degree))
+#
+#     print "Node Degree:", nd1
+#     get_graph(graph, str(len(clients)) + '_config.png')
+#     if len(clients) >= 80:
+#         set_file_count(clients, 2)
+#     elif len(clients) >= 40:
+#         set_file_count(clients, 4)
+#     else:
+#         set_file_count(clients, 8)
+#
+#     resources = read_resource_txt()
+#     file_arr = get_files(clients)
+#     plot_file_distribution(resources, file_arr, str(len(clients)) + '_file_distribution.png')
+#     execute_search(resources, clients, 1)
+#     calculate_1(clients)
+#     calculate_2(clients, resources)
 
-from PeerProtocol import PeerProtocol
-
-bp = BootstrapProtocol('ALPHA')
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
-def send(data, address, response=True):
-    sock.sendto(data, address)
-    if response:
-        data = sock.recv(100000000)
-        return data
-    else:
-        return None
+import hashlib, uuid
 
+print uuid.NAMESPACE_DNS
 
-def read_resource_txt():
-    data = open('resources.txt', 'r').read().replace('\r', '').split('\n')
-    search_list = []
-    count = 1
-    for index in range(len(data)):
-        if len(data[index]) > 0 and data[index][0] != '#':
-            search_list.append(data[index])
-
-    return search_list
-
-
-def get_clients():
-    return bp.parse_response(send(bp.list_all(), ("129.82.46.191", 10000)))['clients']
-
-
-def get_network_config(clients):
-    G = nx.DiGraph()
-    for node in clients:
-        G.add_node(node, addr=str(node))
-
-    for client in clients:
-        resp = send('LISTO', client)
-        resp = json.loads(resp)
-        peers = resp['clients']
-        edge = [(client, tuple(peer)) for peer in peers]
-        G.add_edges_from(edge)
-    return G
-
-
-def node_degree(graph):
-    degree = []
-    for client in graph.nodes():
-        degree.append(len(graph.predecessors(client)))
-    return sum(degree) / float(len(degree))
-
-
-def get_graph(graph, filename='test.png'):
-    nx.draw_circular(graph)
-    plt.savefig(filename)
-    plt.show()
-
-
-def set_file_count(clients, value):
-    for client in clients:
-        send('SET_FILE_COUNT ' + str(value), client)
-
-
-def get_files(clients):
-    result = []
-    for client in clients:
-        resp = send('GET_FILES', client)
-        resp = json.loads(resp)
-        result.append(resp['files'])
-    return result
-
-
-def plot_file_distribution(resources, file_distribution, filename):
-    count = [0 for i in range(len(resources))]
-
-    for node_fil_arr in file_distribution:
-        for lfile in node_fil_arr:
-            count[resources.index(lfile)] += 1
-
-    plt.clf()
-    y_pos = np.arange(len(resources))
-    plt.bar(y_pos, count, align='center', alpha=0.5)
-    # plt.xticks(y_pos, resources)
-    plt.ylabel('Number of Nodes')
-    plt.title('File Distribution')
-    plt.savefig(filename)
-
-    plt.show()
-    pass
-
-
-def execute_search(resources, clients, ns):
-    pp = PeerProtocol()
-    for i in range(ns):
-        for filex in resources:
-            index = int(random.random() * 1000) % len(clients)
-            ip, port = clients[index]
-            send(pp.search_request(ip, port, filex, 0), clients[index], response=False)
-            time.sleep(.5)
-
-
-def calculate_1(clients):
-    hops = []
-    latency = []
-    msg_count = []
-    for client in clients:
-        resp = json.loads(send('SEARCH_RESULTS', client))
-        filename, start_time = [], []
-        for name, timex, hop in resp['requests']:
-            filename.append(name), start_time.append(timex)
-        for res in resp['results']:
-            name = res[0][2:-2]
-            tx = start_time[filename.index(name)]
-            hops.append(res[1])
-            latency.append(abs(res[2] - tx))
-
-        msg_count.append(len(resp['results']) + len(resp['requests']))
-    print "Hops     :", "Min:", min(hops), "Max:", max(hops), "average:", sum(hops) / float(len(hops)), "SD:", np.std(
-        hops)
-    print "Latency  :", "Min:", min(latency), "Max:", max(latency), "average:", sum(latency) / float(
-        len(latency)), "SD:", np.std(latency)
-    print "Msg Count:", "Min:", min(msg_count), "Max:", max(msg_count), "average:", sum(msg_count) / float(
-        len(msg_count)), "SD:", np.std(
-        msg_count)
-
-
-def calculate_2(clients, resources):
-    a = 2.
-    dist = np.random.zipf(a, len(resources))
-    dist = np.sort(dist)
-    plt.clf()
-    plt.plot(dist, range(len(resources)))
-    plt.savefig('zipfs.png')
-    plt.show()
-
-
-if __name__ == '__main__':
-    clients = get_clients()
-    print "Number of Nodes:", len(clients)
-    graph = get_network_config(clients)
-
-    degree = []
-    for client in graph.nodes():
-        degree.append(len(graph.predecessors(client)))
-    nd1 = sum(degree) / float(len(degree))
-
-    print "Node Degree:", nd1
-    get_graph(graph, str(len(clients)) + '_config.png')
-    if len(clients) >= 80:
-        set_file_count(clients, 2)
-    elif len(clients) >= 40:
-        set_file_count(clients, 4)
-    else:
-        set_file_count(clients, 8)
-
-    resources = read_resource_txt()
-    file_arr = get_files(clients)
-    plot_file_distribution(resources, file_arr, str(len(clients)) + '_file_distribution.png')
-    execute_search(resources, clients, 1)
-    calculate_1(clients)
-    calculate_2(clients, resources)
+print uuid.uuid5(uuid.NAMESPACE_DNS, 'python.org')
