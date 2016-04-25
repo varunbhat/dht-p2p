@@ -17,7 +17,7 @@ class ProtocolHandler:
                        r'(?<=LEAVE) (?P<address_leave>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+\d+)|' \
                        r'(?<=LEAVE)(?P<leave_resp>OK) (?P<error_code_leave>-?\d+)|' \
                        r'(?<=SER) (?P<ser_req_starttime>[0-9\.]+) (?P<ser_req_hops>\d+) (?P<address_search>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ser_key>[a-zA-Z0-9_]+)|' \
-                       r'(?<=SER)(?P<ser_resp>OK) (?P<ser_hops>\d+) (?P<ser_starttime>[0-9\.]+) (?P<ser_endtime>[0-9\.]+) (?P<ser_count>\d+) (?P<ser_resp_details> *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+)|' \
+                       r'(?<=SER)(?P<ser_resp>OK) (?P<ser_hops>\d+) (?P<ser_starttime>[0-9\.]+) (?P<ser_endtime>[0-9\.]+) (?P<ser_count>\d+) *(?P<ser_resp_details> *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+)?|' \
                        r'(?<=UPFIN) (?P<upfin_type>[01]) (?P<upfin_node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ip_hash>[A-Za-z0-9\-]+)|' \
                        r'(?<=UPFIN)(?P<upfin_resp>OK) (?P<error_code_upfin>-?\d+)|' \
                        r'(?<=GETKY) (?P<getkey_key>[a-zA-Z0-9_]+)|' \
@@ -196,6 +196,7 @@ class ProtocolHandler:
             response = {}
             response['type'] = response_type
             response['data'] = response_validate.group('unspecified_data')
+            print response
 
         # Format IP and Port
         if response.get('clients') is not None:
@@ -295,14 +296,14 @@ class ProtocolHandler:
 
     def search_request(self, starttime, hops, addr, key):
         ip, port = addr
-        return self._string_len_prepend('SER %d %d %s %d %s' % (starttime, hops, ip, port, key))
+        return self._string_len_prepend('SER %s %s %s %s %s' % (starttime, hops, ip, port, key))
 
     def search_response(self, hops, starttime, endtime, details):
         data = []
         for (ip, port), filename in details:
             data.append('%s %d %s' % (ip, port, filename))
         data = ' '.join(data)
-        return self._string_len_prepend('SEROK %s %s %s %d %s' % (hops, starttime, endtime, len(details), data))
+        return self._string_len_prepend('SEROK %s %s %s %s %s' % (hops, starttime, endtime, len(details), data))
 
     def unknown_request(self, error_code):
         return self._string_len_prepend('UNKNOWN %d' % (error_code))

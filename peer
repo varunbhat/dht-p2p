@@ -12,14 +12,6 @@ from ProtocolHandler import ProtocolHandler
 from asyncsocket import AsyncNode
 from chord import Chord
 
-logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s %(threadName)s] %(message)s')
-config = ConfigParser.RawConfigParser()
-config.read('node.cfg')
-protocol = ProtocolHandler()
-initial_resource_list = 'initial_resources.txt'
-add_resource_list = 'add_resources.txt'
-secondary_list = 'second_list.txt'
-
 
 def arguement_parser():
     parser = argparse.ArgumentParser(description='Create a socket server')
@@ -27,6 +19,18 @@ def arguement_parser():
     parser.add_argument('-f', "--file_count", type=int, help='Number of files in the initial list', required=False)
     args = parser.parse_args()
     return args
+
+args = arguement_parser()
+
+# logging.basicConfig(filename='%s_%d_server.log' % (socket.gethostname(),args.port), level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s %(threadName)s] %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s %(threadName)s] %(message)s')
+
+config = ConfigParser.RawConfigParser()
+config.read('node.cfg')
+protocol = ProtocolHandler()
+initial_resource_list = 'initial_resources.txt'
+add_resource_list = 'add_resources.txt'
+secondary_list = 'second_list.txt'
 
 
 def read_config():
@@ -61,7 +65,7 @@ def select_random_files(file_list, length):
     return selected_files
 
 
-args = arguement_parser()
+
 node = AsyncNode(address=(socket.gethostbyname(socket.gethostname()), args.port))
 CONFIG = read_config()
 chord = Chord(node.get_address(), 2 ** (4 * 4))
@@ -88,7 +92,7 @@ def sync_serv(*args, **kwargs):
             #     counter = 0
 
 
-ser_req = {}
+ser_req = None
 
 
 @node.on('handler')
@@ -112,8 +116,8 @@ def handler(data, sock, *args, **kwargs):
             # node.send_data(tuple(data['SERVERINFO']), time.time(), 0, protocol.search_request(node.get_address(), chord.generate_file_id(data['QUERY'])))
             key = chord.generate_file_id(data['QUERY'])
             node.send_data(chord.get_max_dist_address(key),
-                           protocol.search_request(int(time.time()), 0, node.get_address(), key))
-            ser_req[key] = tuple(data['SERVERINFO'])
+                           protocol.search_request(time.time(), 0, node.get_address(), key))
+            ser_req = tuple(data['SERVERINFO'])
         elif data.get('command') == 'PICKRESOURCES':
             files = select_random_files(read_resource_txt(secondary_list), data['num_entries'])
             data = [(node.get_address(), (chord.generate_file_id(filex), filex)) for filex in files]
@@ -150,7 +154,8 @@ def add_request(request, sock):
 def search(request, sock):
     if request['is_response']:
         print 'Response Received:', request['details']
-        node.send_data(ser_req[chord.generate_file_id(request['filename'])], json.dumps(request), no_thread=True)
+        if ser_req:
+            node.send_data(ser_req, json.dumps(request), no_thread=True)
         return
     key = int(request['key'])
     details = []
@@ -160,16 +165,16 @@ def search(request, sock):
             details.append((addr, filename))
     if len(details) > 0:
         node.send_data(request['address'],
-                       protocol.search_response(int(request['hops']) + 1, int(request['starttime']), time.time(),
+                       protocol.search_response(int(request['hops']) + 1, request['starttime'], time.time(),
                                                 details))
     else:
         if chord.in_range(key):
             node.send_data(request['address'],
-                           protocol.search_response(int(request['hops']) + 1, int(request['starttime']), time.time(),
+                           protocol.search_response(int(request['hops']) + 1, request['starttime'], time.time(),
                                                     []))
         else:
             node.send_data(chord.get_max_dist_address(key),
-                           protocol.search_request(int(request['starttime']), int(request['hops']) + 1,
+                           protocol.search_request(request['starttime'], int(request['hops']) + 1,
                                                    request['address'],
                                                    key))
 
@@ -193,9 +198,9 @@ def join_request(request, sock):
 
 @node.on('GIVEKY')
 def add_deregistered_keys(request, sock):
-    if request['is_response']:
+    if not request['is_response']:
         for addr, (key, filename) in request['addr_keymap']:
-            chord.peer_file_add(key, filename, addr)
+            chord.peer_file_add(int(key), filename, addr)
 
 
 @node.on('GETKY')
