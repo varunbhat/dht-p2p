@@ -18,8 +18,8 @@ class ProtocolHandler:
                        r'(?<=JOIN)(?P<join_resp>OK) (?P<error_code_join>-?\d+)|' \
                        r'(?<=LEAVE) (?P<address_leave>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+\d+)|' \
                        r'(?<=LEAVE)(?P<leave_resp>OK) (?P<error_code_leave>-?\d+)|' \
-                       r'(?<=SER) (?P<address_search>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) "(?P<search_string>.*?)" (?P<search_uid_req>[a-fA-F0-9\-]{36})? *(?P<hops>\d+)|' \
-                       r'(?<=SER)(?P<ser_resp>OK) (?P<node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<search_uid_resp>[a-fA-f0-9\-]{36})? ?(?P<error_code_search>\d+)( (?P<hops_response>\d+)(?P<filename>( ".*?"){0,}))?|' \
+                       r'(?<=SER) (?P<address_search>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ser_key>[a-zA-Z0-9_]+)|' \
+                       r'(?<=SER)(?P<ser_resp>OK) (?P<ser_count>\d+) (?P<ser_resp_details> *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+)|' \
                        r'(?<=UPFIN) (?P<upfin_type>[01]) (?P<upfin_node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ip_hash>[A-Za-z0-9\-]+)|' \
                        r'(?<=UPFIN)(?P<upfin_resp>OK) (?P<error_code_upfin>-?\d+)|' \
                        r'(?<=GETKY) (?P<getkey_key>[a-zA-Z0-9_]+)|' \
@@ -110,18 +110,17 @@ class ProtocolHandler:
             response['type'] = response_type
             if response_validate.group('ser_resp') == 'OK':
                 response['response_flag'] = True
-                response['error_code'] = int(response_validate.group('error_code_search'))
-                if response_validate.group('hops_response'):
-                    response['hops'] = int(response_validate.group('hops_response'))
-                response['source_address'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
+                response['details'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+) ([a-zA-Z0-9_]+)',
                                                         response_validate.group(
-                                                            'node_address') if response_validate.group(
-                                                            'node_address') is not None else '')
-                response['search_id'] = response_validate.group('search_uid_resp') if response_validate.group(
-                    'search_uid_resp') is not None else str(uuid.uuid4())
+                                                            'ser_resp_details') if response_validate.group(
+                                                            'ser_resp_details') is not None else '')
 
-                if response_validate.group('filename') is not None:
-                    response['filename'] = re.findall(r'"(.*?)"', response_validate.group('filename'))
+                details = []
+                for ip,port,key in response['details']:
+                    details.append(((ip,port),key))
+                response['details'] = details
+
+                response['error_code'] = int(response_validate.group('ser_count'))
 
             else:
                 response['response_flag'] = False
@@ -129,11 +128,7 @@ class ProtocolHandler:
                                                         response_validate.group(
                                                             'address_search') if response_validate.group(
                                                             'address_search') is not None else '')
-                response['search_string'] = response_validate.group('search_string')
-                response['hops'] = int(response_validate.group('hops'))
-                response['search_id'] = response_validate.group('search_uid_req') if response_validate.group(
-                    'search_uid_req') is not None else str(uuid.uuid4())
-
+                response['key'] = response_validate.group('ser_key')
         elif response_type == 'UPFIN':
             response['type'] = response_type
             if response_validate.group('upfin_resp') == 'OK':

@@ -69,34 +69,30 @@ chord = Chord(node.get_address(), 2 ** (4 * 4))
 def sync_serv(*args, **kwargs):
     counter = 0
     while not node.stop_flag:
-        # print 'hello'
         time.sleep(1)
-        # counter += 1
-        # if not counter % 3 == 0:
-        #     continue
-        #
-        # counter = 0 if counter == 100 else counter
-        #
-        # for addr in chord.node_addressmap.values():
-        #     resp = node.send_data(addr, json.dumps({'message': 'sync_req'}), no_thread=True, silent=True)
-        #
-        #     try:
-        #         resp = json.loads(resp)
-        #     except ValueError, e:
-        #         print e
-        #
-        #     print len(resp['clients']), len(chord.node_addressmap.values())
-        #     if resp['message'] == 'sync_resp':
-        #
-        #         if len(resp['clients']) != len(chord.node_addressmap.values()):
-        #             node.send_data(CONFIG.bs_address, protocol.list_all(CONFIG.username), event='message')
-        #             chord.initialize_range(resp['clients'])
+        counter+=1
+        filemap = chord.get_peer_filemap()
+        keys = []
+        for addr, (key, filename) in filemap:
+            if not chord.in_range(key):
+                add_files(key, filename)
+                keys.append(key)
+        for i in keys:
+            chord.peer_file_del(i)
+
+        # if counter % 30 == 0:
+        #     for key, filemap in chord.get_node_filemap().iteritems():
+        #         chord.peer_file_add(key, filemap, node.get_address())
+        #     counter = 0
 
 
 @node.on('handler')
 def handler(data, sock, *args, **kwargs):
-    if data != '' or data is not None:
-        data = json.loads(data)
+    try:
+        if data != '' or data is not None:
+            data = json.loads(data)
+    except ValueError:
+        return
 
     if data['message'] == 'sync_req':
         if sock is None:
@@ -121,9 +117,13 @@ def add_request(request, sock):
 
         if chord.in_range(key):
             chord.peer_file_add(key, filename, request['clients'])
-            node.send_data(request['clients'], protocol.add_response(0))
+            # node.send_data(request['clients'], protocol.add_response(0))
+            node.send_data(None, protocol.add_response(0), sock=sock)
         else:
-            node.send_data(chord.get_max_dist_address(key), protocol.add_request(node.get_address(), (key, filename)))
+            resp = node.send_data(chord.get_max_dist_address(key),
+                                  protocol.add_request(node.get_address(), (key, filename)), no_thread=True)
+            if resp is not None:
+                node.send_data(None, resp, sock=sock)
 
 
 @node.on('UPFIN')
@@ -142,6 +142,10 @@ def join_request(request, sock):
 
             node.send_data(None, protocol.update_finger_response(0), sock=sock)
 
+@node.on('GIVEKY')
+def add_deregistered_keys(request,sock):
+    print request
+
 
 @node.on('GETKY')
 def get_file_keys(request, sock):
@@ -152,12 +156,23 @@ def get_file_keys(request, sock):
 
     # Successor Node and the present node are the same. so dont do anything
     if request['key'] != chord.get_nodeid():
-        node_req_files = chord.get_peer_filemap(int(request['key']))
+        node_req_files = chord.get_predecessor_keys(int(request['key']))
         logging.debug('Files returned for the new predecessor Node: %s' % (str(node_req_files)))
         node.send_data(None, protocol.get_key_response(node_req_files), sock=sock, no_thread=True)
-        chord.peer_file_del(int(request['key']))
+        # chord.peer_file_del(int(request['key']))
     else:
         node.send_data(None, protocol.get_key_response([]), sock=sock)
+
+
+def add_files(key, filemap):
+    resp = None
+    logging.debug('Adding files to the network')
+    while resp == None or resp.get('error_code') is None or resp.get('error_code') != '0':
+        resp = node.send_data(chord.get_max_dist_address(key),
+                              protocol.add_request(node.get_address(), (key, filemap)),
+                              no_thread=True)
+        resp = protocol.parse_response(resp)
+    logging.debug('Addkey Response Received: filename:%s key:%s' % (filemap, key))
 
 
 @node.on('GET')
@@ -177,16 +192,16 @@ def get_response(response, *args, **kwargs):
         resp = node.send_data(chord.get_successor(), protocol.get_key_request(chord.get_nodeid()), no_thread=True)
         logging.debug('Received Get key Response from successor. %s' % (resp))
         resp = protocol.parse_response(resp)
-        logging.debug('Getkey parsed Response: %s' % (resp))
+        # logging.debug('Getkey Files Received: %s' % (resp['keymap']))
 
-        # if resp != None:
-        #     for addr, (key, filename) in resp['addr_keymap']:
-        #         chord.peer_file_add(int(key), filename, addr)
-        #
-        # for key, filemap in chord.get_node_filemap().iteritems():
-        #     node.send_data(chord.get_max_dist_address(key),
-        #                    protocol.add_request(node.get_address(), (key, filemap)),
-        #                    no_thread=True)
+        if resp != None:
+            for addr, (key, filename) in resp['addr_keymap']:
+                chord.peer_file_add(int(key), filename, addr)
+
+        for key, filemap in chord.get_node_filemap().iteritems():
+            logging.debug('Added File %s(%s) to Node' % (filemap, key))
+            chord.peer_file_add(key, filemap, node.get_address())
+
 
 
 @node.on('REG')
@@ -199,8 +214,7 @@ def register_details(response, sock, *args, **kwargs):
                        event='message',
                        retry_count=kwargs.get('retry_count') + 1 if kwargs.get('retry_count') is not None else 1)
     else:
-        logging.debug('Listing all clients connected to bootstrap')
-        node.send_data(CONFIG.bs_address, protocol.list_all(CONFIG.username), event='message')
+        node.send_data(CONFIG.bs_address, protocol.list_all(CONFIG.username), event='message', silent=True)
 
 
 @node.on('register')
@@ -222,11 +236,10 @@ def bootstrap_registration():
 
     # read the list of files from the initial list
     node_file_list = format_filename(
-        select_random_files(read_resource_txt(initial_resource_list), args.file_count or 1))
+        select_random_files(read_resource_txt(initial_resource_list), args.file_count or 7))
 
     # Initialize the files and store in the node List
     chord.initialize_files(node_file_list)
-
     node.startevent('sync_serv')
 
 
@@ -248,27 +261,28 @@ def monitor_commands():
             disp_len = len(str(max(ids)))
 
             for key in ids:
-                print 'ID: ', str(key).zfill(disp_len), 'Addr:', ft[key]
+                print 'ID: ', str(2 ** key + chord.get_nodeid()).zfill(disp_len), 'Addr:', ft[key]
             print 'Predecessor:', chord.get_predecessor()
             print 'Successor  :', chord.get_successor()
             print 'Span       :', chord.get_span()
         elif input_read == 'entries':
             if len(chord.get_node_filemap()) > 0:
                 for key, name in chord.get_node_filemap().iteritems():
-                    print str(key).zfill(15), ':', name
+                    print str(key), ':', name
             else:
                 print 'Empty'
         elif input_read == 'keytable':
             files = chord.get_peer_filemap()
             if len(files) > 0:
-                for addr, (key, filename) in files:
-                    print str(key).zfill(15), ':', addr, filename
+                for addr,(key,filename) in files:
+                    print str(key), ':', (addr,filename)
             else:
                 print 'Empty'
         elif input_read == 'clients':
             for key, val in chord.node_addressmap.iteritems():
                 print key, ': ', val
-
+        elif input_read == 'range':
+            print 'Span       :', chord.get_span()
         elif input_read == 'exit':
             node.stop()
             return
@@ -282,7 +296,8 @@ def monitor_commands():
 
 @node.on('stop')
 def deregister():
-    # node.send_data(chord.successor, protocol.give_key_request(chord.get_peer_filemap()), no_thread=True)
+    values = chord.get_peer_filemap()
+    node.send_data(chord.get_successor(), protocol.give_key_request(values), no_thread=True)
     for addr in chord.node_addressmap.values():
         if addr != node.get_address():
             node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()),

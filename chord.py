@@ -69,16 +69,17 @@ class Chord:
     def get_node_filemap(self):
         return self.node_filemap
 
-    def get_peer_filemap(self, key=None):
-        if key == None:
-            return self.peer_filemap
-        else:
-            retval = []
-            for addr, (id, file) in self.peer_filemap:
-                if self.in_range(id, (key + 1, self.id_space[1])):
-                    continue
-                retval.append((addr, (id, file)))
-            return retval
+    def get_peer_filemap(self):
+        self.peer_filemap = list(set(self.peer_filemap))
+        return self.peer_filemap
+
+    def get_predecessor_keys(self, pred_id):
+        retval = []
+        space = (self.id_space[0], pred_id)
+        for addr, (id, filename) in self.peer_filemap:
+            if self.in_range(id, space):
+                retval.append((addr, (id, filename)))
+        return retval
 
     def get_successor(self):
         return self.successor.values()[0]
@@ -114,16 +115,21 @@ class Chord:
             return False
 
     def peer_file_del(self, key):
+        # logging.debug('Peer Filemap: %s' % str(self.peer_filemap))
         temp = self.peer_filemap
-        logging.debug('Peer Filemap: %s' % str(self.peer_filemap))
-        for i in range(len(self.peer_filemap)):
-            addr, (id, filename) = self.peer_filemap[i]
-            if not self.in_range(id, (key + 1, self.id_space[1])):
-                del temp[temp.index(self.peer_filemap[i])]
-        self.peer_filemap = temp
+        try:
+            for i in range(len(self.peer_filemap)):
+                addr, (id, filename) = self.peer_filemap[i]
+                if id == key:
+                    del temp[i]
+        except IndexError:
+            pass
+
+        self.peer_filemap = list(set(temp))
 
     def peer_file_add(self, key, filename, address):
-        self.peer_filemap.append((address, (key, filename)))
+        self.peer_filemap.append((address, (key,filename)))
+        self.peer_filemap = list(set(self.peer_filemap))
 
     def generate_finger_table(self):
         ids = self.node_addressmap.keys()
