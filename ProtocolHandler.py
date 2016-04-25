@@ -1,6 +1,4 @@
 import re
-import logging
-import uuid
 
 
 class ProtocolHandler:
@@ -109,25 +107,26 @@ class ProtocolHandler:
             response = {}
             response['type'] = response_type
             if response_validate.group('ser_resp') == 'OK':
-                response['response_flag'] = True
+                response['is_response'] = True
                 response['details'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+) ([a-zA-Z0-9_]+)',
-                                                        response_validate.group(
-                                                            'ser_resp_details') if response_validate.group(
-                                                            'ser_resp_details') is not None else '')
+                                                 response_validate.group(
+                                                     'ser_resp_details') if response_validate.group(
+                                                     'ser_resp_details') is not None else '')
 
                 details = []
-                for ip,port,key in response['details']:
-                    details.append(((ip,port),key))
+                for ip, port, key in response['details']:
+                    details.append(((ip, port), key))
                 response['details'] = details
 
                 response['error_code'] = int(response_validate.group('ser_count'))
 
             else:
-                response['response_flag'] = False
-                response['source_address'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
+                response['is_response'] = False
+                response['address'] = re.findall(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(\d+)',
                                                         response_validate.group(
                                                             'address_search') if response_validate.group(
                                                             'address_search') is not None else '')
+                response['address'] = self.format_addresses(response['address'])
                 response['key'] = response_validate.group('ser_key')
         elif response_type == 'UPFIN':
             response['type'] = response_type
@@ -277,7 +276,7 @@ class ProtocolHandler:
         for addr, keymap in addr_keymap:
             data.append('%s %d %s %s' % (addr[0], addr[1], keymap[0], keymap[1]))
         data = ' '.join(data)
-        return self._string_len_prepend('GETKYOK %d %s' % (len(addr_keymap), data))
+        return self._string_len_prepend('GIVEKY %d %s' % (len(addr_keymap), data))
 
     def give_key_response(self, err_code):
         return self._string_len_prepend('GIVEKYOK %d' % (err_code))
@@ -290,19 +289,16 @@ class ProtocolHandler:
     def add_response(self, err_code):
         return self._string_len_prepend('ADDOK %s' % (err_code))
 
-    def search_request(self, ip, port, filename, uid, hops):
-        return self._string_len_prepend('SER %s %d "%s" %s %d' % (ip, port, filename, uid, hops))
+    def search_request(self, addr, key):
+        ip, port = addr
+        return self._string_len_prepend('SER %s %d %s' % (ip, port, key))
 
-    def search_response(self, ip, port, error_code, uid, filename=None, hops=0):
-        if filename is not None and len(filename) > 0 and error_code >= 0:
-            file_concat = ""
-            error_code = len(filename)
-            for filex in filename:
-                file_concat += '"%s" ' % filex
-            file_concat = file_concat[0:-1]
-            return self._string_len_prepend('SEROK %s %d %s %d %d %s' % (ip, port, uid, error_code, hops, file_concat))
-        else:
-            return self._string_len_prepend('SEROK %s %d %s %d' % (ip, port, uid, error_code))
+    def search_response(self, details):
+        data = []
+        for (ip, port), filename in details:
+            data.append('%s %d %s' % (ip, port, filename))
+        data = ' '.join(data)
+        return self._string_len_prepend('SEROK %d %s' % (len(details), data))
 
     def unknown_request(self, error_code):
         return self._string_len_prepend('UNKNOWN %d' % (error_code))
