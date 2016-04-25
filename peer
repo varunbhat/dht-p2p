@@ -327,7 +327,7 @@ def monitor_commands():
             data = re.findall(r'([a-z0-9A-Z_]+) +(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) +(\d+)?', input_read)
             if len(data) > 0:
                 key, ip, port = data[0]
-                node.send_data((ip, int(port)), time.time(), 0, protocol.search_request(node.get_address(), key))
+                node.send_data((ip, int(port)), protocol.search_request(time.time(), 0,node.get_address(), key))
         elif input_read == 'exitall':
             for client in chord.clientlist:
                 node.send_data(client, json.dumps({'command': 'EXITALL'}))
