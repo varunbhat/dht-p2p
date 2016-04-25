@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import math
 
 
@@ -39,13 +40,11 @@ class Chord:
         self.initialize_range(self.node_addressmap.values() + [address])
 
     def delete_node(self, address):
-        del_id = self.generate_id('%s:%d' % address)
+        del_id = self.generate_id(address)
         del self.node_addressmap[del_id]
         self.initialize_range(self.node_addressmap.values())
 
     def initialize_range(self, clientlist):
-        id_list = {}
-
         if type(clientlist) == tuple:
             self.clientlist = [clientlist]
         else:
@@ -109,8 +108,6 @@ class Chord:
         maxval = (maxval - 1 - minval) % (2 ** self._NODE_COUNT_MANTISSA)
         minval -= minval
 
-        print 'In Range:', key, (minval, maxval)
-
         if key >= 0 and key <= maxval:
             return True
         else:
@@ -118,10 +115,11 @@ class Chord:
 
     def peer_file_del(self, key):
         temp = self.peer_filemap
+        logging.debug('Peer Filemap: %s' % str(self.peer_filemap))
         for i in range(len(self.peer_filemap)):
             addr, (id, filename) = self.peer_filemap[i]
             if not self.in_range(id, (key + 1, self.id_space[1])):
-                del temp[i]
+                del temp[temp.index(self.peer_filemap[i])]
         self.peer_filemap = temp
 
     def peer_file_add(self, key, filename, address):
@@ -138,5 +136,4 @@ class Chord:
             for i in ids_ov:
                 if finger_theoritical <= i:
                     break
-
-            self.finger_table[k] = self.node_addressmap[i % (2 ** self._NODE_COUNT_MANTISSA)]
+            self.finger_table[k] = self.node_addressmap[i % ((2 ** self._NODE_COUNT_MANTISSA))]
