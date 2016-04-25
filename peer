@@ -62,7 +62,7 @@ def select_random_files(file_list, length):
 
 
 args = arguement_parser()
-node = AsyncNode(address=(socket.gethostbyname(socket.gethostname(), args.port)))
+node = AsyncNode(address=(socket.gethostbyname(socket.gethostname()), args.port))
 CONFIG = read_config()
 chord = Chord(node.get_address(), 2 ** (4 * 4))
 
