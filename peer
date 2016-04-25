@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import random
+import socket
 import time
 
 import re
@@ -17,6 +18,7 @@ config.read('node.cfg')
 protocol = ProtocolHandler()
 initial_resource_list = 'initial_resources.txt'
 add_resource_list = 'add_resources.txt'
+secondary_list = 'second_list.txt'
 
 
 def arguement_parser():
@@ -60,7 +62,7 @@ def select_random_files(file_list, length):
 
 
 args = arguement_parser()
-node = AsyncNode(address=('127.0.0.1', args.port))
+node = AsyncNode(address=(socket.gethostbyname(socket.gethostname()), args.port))
 CONFIG = read_config()
 chord = Chord(node.get_address(), 2 ** (4 * 4))
 
@@ -94,12 +96,17 @@ def handler(data, sock, *args, **kwargs):
     except ValueError:
         return
 
-    if data['message'] == 'sync_req':
+    if data['command'] == 'sync_req':
         if sock is None:
             logging.debug('Socket malfunction')
         node.send_data(None, json.dumps({'message': 'sync_resp', 'clients': chord.node_addressmap.values()}), sock=sock,
                        silent=True)
 
+    if data.get('command') is not None:
+        if data.get('command') == 'EXITALL':
+            node.stop()
+        elif data.get('command') == 'STARTSEARCH':
+            node.send_data(tuple(data['SERVERINFO']), time.time(), 0, protocol.search_request(node.get_address(), chord.generate_file_id(data['QUERY'])))
 
 @node.on('message')
 def echoMessage(data, sock=None, address=None, *args, **kwargs):
@@ -130,6 +137,7 @@ def add_request(request, sock):
 def search(request, sock):
     if request['is_response']:
         print 'Response Received:', request['details']
+
         return
     key = int(request['key'])
     details = []
@@ -138,9 +146,11 @@ def search(request, sock):
         if id == key:
             details.append((addr, filename))
     if len(details) > 0:
-        node.send_data(request['address'], protocol.search_response(details))
+        node.send_data(request['address'], int(request['hops']) + 1, int(request['starttime']), time.time(),
+                       protocol.search_response(details))
     else:
-        node.send_data(chord.get_max_dist_address(key), protocol.search_request(request['address'], key))
+        node.send_data(chord.get_max_dist_address(key), int(request['starttime']), int(request['hops']) + 1,
+                       protocol.search_request(request['address'], key))
 
 
 @node.on('UPFIN')
@@ -170,8 +180,8 @@ def add_deregistered_keys(request, sock):
 @node.on('GETKY')
 def get_file_keys(request, sock):
     if request['is_response']:
-        for addr,(key,filename) in request['addr_keymap']:
-            chord.peer_file_add(key,filename,addr)
+        for addr, (key, filename) in request['addr_keymap']:
+            chord.peer_file_add(key, filename, addr)
 
     logging.debug('Getkey request received')
 
@@ -306,13 +316,21 @@ def monitor_commands():
         elif input_read == 'exit':
             node.stop()
             return
+
+        elif input_read == 'add':
+            files = select_random_files(read_resource_txt(secondary_list), 7)
+            data = [(node.get_address(), (chord.generate_file_id(filex), filex)) for filex in files]
+            for addr, (key, filename) in data:
+                chord.peer_file_add(key, filename, addr)
+
         elif len(re.findall(r'search *([a-z0-9A-Z_]+.*)?', input_read)) > 0:
             data = re.findall(r'([a-z0-9A-Z_]+) +(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) +(\d+)?', input_read)
-            print data
             if len(data) > 0:
                 key, ip, port = data[0]
-                node.send_data((ip, int(port)), protocol.search_request(node.get_address(), key))
+                node.send_data((ip, int(port)), time.time(), 0, protocol.search_request(node.get_address(), key))
         elif input_read == 'exitall':
+            for client in chord.clientlist:
+                node.send_data(client, json.dumps({'command': 'EXITALL'}))
             node.stop()
             return
     except Exception, e:
@@ -332,4 +350,4 @@ def deregister():
 
 
 if __name__ == '__main__':
-    node.start(ip='127.0.0.1', port=args.port)
+    node.start(ip=socket.gethostbyname(socket.gethostname()), port=args.port)
