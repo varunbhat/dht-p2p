@@ -16,7 +16,7 @@ class ProtocolHandler:
                        r'(?<=JOIN)(?P<join_resp>OK) (?P<error_code_join>-?\d+)|' \
                        r'(?<=LEAVE) (?P<address_leave>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+\d+)|' \
                        r'(?<=LEAVE)(?P<leave_resp>OK) (?P<error_code_leave>-?\d+)|' \
-                       r'(?<=SER) (?P<address_search>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ser_key>[a-zA-Z0-9_]+)|' \
+                       r'(?<=SER) (?P<ser_req_starttime>\d+) (?P<ser_req_hops>\d+) (?P<address_search>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ser_key>[a-zA-Z0-9_]+)|' \
                        r'(?<=SER)(?P<ser_resp>OK) (?P<ser_starttime>\d+) (?P<ser_hops>\d+) (?P<ser_count>\d+) (?P<ser_resp_details> *\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+ [0-9a-zA-Z_]+)|' \
                        r'(?<=UPFIN) (?P<upfin_type>[01]) (?P<upfin_node_address>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} \d+) (?P<ip_hash>[A-Za-z0-9\-]+)|' \
                        r'(?<=UPFIN)(?P<upfin_resp>OK) (?P<error_code_upfin>-?\d+)|' \
@@ -117,8 +117,8 @@ class ProtocolHandler:
                 for ip, port, key in response['details']:
                     details.append(((ip, port), key))
                 response['details'] = details
-                response['starttime'] = response_validate.groups('ser_starttime')
-                response['hops'] = response_validate.groups('ser_hops')
+                response['starttime'] = response_validate.group('ser_starttime')
+                response['hops'] = response_validate.group('ser_hops')
                 response['error_code'] = int(response_validate.group('ser_count'))
 
             else:
@@ -129,6 +129,8 @@ class ProtocolHandler:
                                                      'address_search') is not None else '')
                 response['address'] = self.format_addresses(response['address'])
                 response['key'] = response_validate.group('ser_key')
+                response['starttime'] = response_validate.group('ser_req_starttime')
+                response['hops'] = response_validate.group('ser_req_hops')
         elif response_type == 'UPFIN':
             response['type'] = response_type
             if response_validate.group('upfin_resp') == 'OK':

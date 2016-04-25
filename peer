@@ -106,7 +106,13 @@ def handler(data, sock, *args, **kwargs):
         if data.get('command') == 'EXITALL':
             node.stop()
         elif data.get('command') == 'STARTSEARCH':
-            node.send_data(tuple(data['SERVERINFO']), time.time(), 0, protocol.search_request(node.get_address(), chord.generate_file_id(data['QUERY'])))
+            #node.send_data(tuple(data['SERVERINFO']), time.time(), 0, protocol.search_request(node.get_address(), chord.generate_file_id(data['QUERY'])))
+            node.send_data(tuple(data['SERVERINFO']),  protocol.search_request(time.time(), 0, node.get_address(), chord.generate_file_id(data['QUERY'])))
+        elif data.get('command') == 'PICKRESOURCES':
+            files = select_random_files(read_resource_txt(secondary_list), data['num_entries'])
+            data = [(node.get_address(), (chord.generate_file_id(filex), filex)) for filex in files]
+            for addr, (key, filename) in data:
+                chord.peer_file_add(key, filename, addr)
 
 @node.on('message')
 def echoMessage(data, sock=None, address=None, *args, **kwargs):
@@ -146,11 +152,11 @@ def search(request, sock):
         if id == key:
             details.append((addr, filename))
     if len(details) > 0:
-        node.send_data(request['address'], int(request['hops']) + 1, int(request['starttime']), time.time(),
-                       protocol.search_response(details))
+        node.send_data(request['address'],
+                       protocol.search_response(int(request['hops']) + 1,int(request['starttime']),time.time(),details))
     else:
-        node.send_data(chord.get_max_dist_address(key), int(request['starttime']), int(request['hops']) + 1,
-                       protocol.search_request(request['address'], key))
+        node.send_data(chord.get_max_dist_address(key),
+                       protocol.search_request(int(request['starttime']), int(request['hops']) + 1, request['address'], key))
 
 
 @node.on('UPFIN')

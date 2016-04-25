@@ -12,7 +12,6 @@ import getopt
 import re
 import json
 from time import strftime, gmtime
-from utilities import resources
 
 
 b_ip = None
@@ -113,14 +112,14 @@ class CentralController:
                 self.client_skt.close()
             self.client_skt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                self.client_skt.connect((toip, int(toport)))
+                self.client_skt.connect((ip, int(port)))
             except socket.error, e:
                 print e.message
                 self.client_skt.close()
                 self.client_skt = None
                 return
 
-            self.client_skt.send(message)
+            self.client_skt.send(command)
             return_message = "NONE"
             if rx == True:
                 try:
@@ -155,9 +154,9 @@ class CentralController:
     def search_for(self, query):
         node = self.random_node()
         if node is not None:
-            command = {'command':'STARTSEARCH', 'QUERY':entry, 'SERVERINFO':(self.myip, self.myport)}
+            command = {'command':'STARTSEARCH', 'QUERY':query, 'SERVERINFO':(self.myip, self.myport)}
             self.__send_command(node[0], node[1], json.dumps(command))
-            self.write_log("STARTSEARCH " + entry + "=> " + str(node[0]) + ":" + str(node[1]))
+            self.write_log("STARTSEARCH " + query + "=> " + str(node[0]) + ":" + str(node[1]))
             self.__main_thread_notifier.wait(3)
             self.__main_thread_notifier.clear()
             return True
@@ -236,7 +235,7 @@ class CentralController:
     def write_log(self, data):
         cur_time = strftime("[%m-%d %H:%M:%S]", gmtime())
         msg = "{0}: {1}".format(cur_time, data)
-        f.write(msg + '\n')
+        self.__logfile.write(msg + '\n')
 
 
 
@@ -310,7 +309,7 @@ def main():
     for f in freq:
         r = range(f)
         query = resources[idx]
-        for i in range(r):
+        for i in r:
             controller.search_for(query)
         idx += 1
 
