@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import ConfigParser
+import configparser
 import argparse
 import json
 import logging
@@ -7,9 +7,10 @@ import random
 import socket
 import time
 
+
 import re
-from ProtocolHandler import ProtocolHandler
 from asyncsocket import AsyncNode
+from asyncsocket import helpers
 from chord import Chord
 
 
@@ -22,21 +23,15 @@ def arguement_parser():
 
 args = arguement_parser()
 
-# logging.basicConfig(filename='%s_%d_server.log' % (socket.gethostname(),args.port), level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s %(threadName)s] %(message)s')
 logging.basicConfig(level=logging.DEBUG, format='[%(asctime)-15s %(levelname)s %(threadName)s] %(message)s')
 
-config = ConfigParser.RawConfigParser()
+config = configparser.RawConfigParser()
 config.read('node.cfg')
-protocol = ProtocolHandler()
 initial_resource_list = 'initial_resources.txt'
-add_resource_list = 'add_resources.txt'
-secondary_list = 'second_list.txt'
-
 
 def read_config():
     cfg = type('obj', (object,), {})
-    cfg.bs_address = protocol.format_addresses([config.get('bootstrap', 'address').split(':')])
-    cfg.username = config.get('node', 'username')
+    cfg.bs_address = helpers.format_addresses([config.get('bootstrap', 'address').split(':')])
     return cfg
 
 
@@ -86,12 +81,6 @@ def sync_serv(*args, **kwargs):
         for i in keys:
             chord.peer_file_del(i)
 
-            # if counter % 30 == 0:
-            #     for key, filemap in chord.get_node_filemap().iteritems():
-            #         chord.peer_file_add(key, filemap, node.get_address())
-            #     counter = 0
-
-
 ser_req = None
 
 
@@ -106,7 +95,7 @@ def handler(data, sock, *args, **kwargs):
     if data['command'] == 'sync_req':
         if sock is None:
             logging.debug('Socket malfunction')
-        node.send_data(None, json.dumps({'message': 'sync_resp', 'clients': chord.node_addressmap.values()}), sock=sock,
+        node.send_data(None, json.dumps({'message': 'sync_resp', 'clients': list(chord.node_addressmap.values())}), sock=sock,
                        silent=True)
 
     if data.get('command') is not None:
@@ -153,7 +142,7 @@ def add_request(request, sock):
 @node.on('SER')
 def search(request, sock):
     if request['is_response']:
-        print 'Response Received:', request['details']
+        print('Response Received:', request['details'])
         if ser_req:
             node.send_data(ser_req, json.dumps(request), no_thread=True)
         return
@@ -255,7 +244,7 @@ def get_response(response, *args, **kwargs):
             for addr, (key, filename) in resp['addr_keymap']:
                 chord.peer_file_add(int(key), filename, addr)
 
-        for key, filemap in chord.get_node_filemap().iteritems():
+        for key, filemap in chord.get_node_filemap().items():
             logging.debug('Added File %s(%s) to Node' % (filemap, key))
             chord.peer_file_add(key, filemap, node.get_address())
 
@@ -302,43 +291,43 @@ def bootstrap_registration():
 @node.on('loop')
 def monitor_commands():
     ip, port = node.get_address()
-    input_read = raw_input('%s@%s:%d %s> ' % (CONFIG.username, ip, port, chord.get_nodeid()))
+    input_read = input('%s@%s:%d %s> ' % (CONFIG.username, ip, port, chord.get_nodeid()))
     input_read = input_read.lower()
 
     try:
         if input_read == 'details':
-            print 'IP     :', node.get_address()
-            print 'KEY    :', chord.get_nodeid()
+            print('IP     :', node.get_address())
+            print('KEY    :', chord.get_nodeid())
         elif input_read == 'fingertable':
             ft = chord.get_finger_table()
-            ids = ft.keys()
+            ids = list(ft.keys())
             ids.sort()
 
             disp_len = len(str(max(ids)))
 
             for key in ids:
-                print 'ID: ', str(2 ** key + chord.get_nodeid()).zfill(disp_len), 'Addr:', ft[key]
-            print 'Predecessor:', chord.get_predecessor()
-            print 'Successor  :', chord.get_successor()
-            print 'Span       :', chord.get_span()
+                print('ID: ', str(2 ** key + chord.get_nodeid()).zfill(disp_len), 'Addr:', ft[key])
+            print('Predecessor:', chord.get_predecessor())
+            print('Successor  :', chord.get_successor())
+            print('Span       :', chord.get_span())
         elif input_read == 'entries':
             if len(chord.get_node_filemap()) > 0:
-                for key, name in chord.get_node_filemap().iteritems():
-                    print str(key), ':', name
+                for key, name in chord.get_node_filemap().items():
+                    print(str(key), ':', name)
             else:
-                print 'Empty'
+                print('Empty')
         elif input_read == 'keytable':
             files = chord.get_peer_filemap()
             if len(files) > 0:
                 for addr, (key, filename) in files:
-                    print str(key), ':', (addr, filename)
+                    print(str(key), ':', (addr, filename))
             else:
-                print 'Empty'
+                print('Empty')
         elif input_read == 'clients':
-            for key, val in chord.node_addressmap.iteritems():
-                print key, ': ', val
+            for key, val in chord.node_addressmap.items():
+                print(key, ': ', val)
         elif input_read == 'range':
-            print 'Span       :', chord.get_span()
+            print('Span       :', chord.get_span())
         elif input_read == 'exit':
             node.stop()
             return
@@ -359,15 +348,15 @@ def monitor_commands():
                 node.send_data(client, json.dumps({'command': 'EXITALL'}))
             node.stop()
             return
-    except Exception, e:
-        print e
+    except Exception as e:
+        print(e)
         pass
 
 
 @node.on('stop')
 def deregister():
     values = chord.get_peer_filemap()
-    for addr in chord.node_addressmap.values():
+    for addr in list(chord.node_addressmap.values()):
         if addr != node.get_address():
             node.send_data(addr, protocol.update_finger_request(protocol.LEAVE, node.address, chord.get_nodeid()),
                            silent=True)

@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+
+import datetime
+import logging
+
+import asyncio
+import json
+
+from aiocoap.message import Message
+from aiocoap.protocol import Context
+# from chord import chord
+
+import aiocoap.resource as resource
+import aiocoap
+
+class AreaRouter(resource.Resource):
+    def __init__(self):
+        super(AreaRouter, self).__init__()
+
+    @asyncio.coroutine
+    def initiate_join_request(self, request):
+        print(request)
+        context = yield from Context.create_client_context()
+        request = Message(code=aiocoap.GET)
+        request.opt.uri_host = request.remote[0]
+        request.opt.uri_path = ('.well-known', 'core')
+        resp = yield from context.request(request).response
+        #todo: store the value in the register about the type of messages
+        print(resp)
+
+    @asyncio.coroutine
+    def render_put(self, request):
+        payload = json.loads(request.payload.decode('utf8'))
+        if payload.get('search'):
+            if chord.in_range(payload['search']):
+                asyncio.get_event_loop().create_task(self.initiate_join_request(request.remote))
+                # Todo: Query the sensor for resource Discovery
+                return aiocoap.Message(code=aiocoap.CREATED)
+            else:
+                context = yield from Context.create_client_context()
+                request = Message(code=aiocoap.PUT, payload=request.payload)
+                request.opt.uri_host = chord.get_max_dist_address(payload['search'])
+                resp = yield from context.request(request).response
+                return aiocoap.Message(code=resp.code, payload=resp.payload)
+        return aiocoap.Message(code=aiocoap.VALID)
+
+
+class DefaultRouter(resource.Resource):
+    def __init__(self):
+        super(DefaultRouter, self).__init__()
+
+@asyncio.coroutine
+def add_node():
+    logging.debug('Sending Put Request to the bootstrap server')
+    context = yield from Context.create_client_context()
+    request = Message(code=aiocoap.PUT, payload=json.dumps({'location': 'Bangalore', 'type': 'string'}).encode('utf8'))
+    request.opt.uri_host = 'localhost'
+    request.opt.uri_path = ('register',)
+    # request.set_request_uri('coap://localhost/register')
+    response = yield from context.request(request).response
+    print('Result: %s\n%r' % (response.code, response.payload))
+
+
+# logging setup
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("coap-server").setLevel(logging.DEBUG)
+
+def main():
+    # Resource tree creation
+    root = resource.Site()
+    root.add_resource(('.well-known', 'core'), resource.WKCResource(root.get_resources_as_linkheader))
+    root.add_resource(('sensor', 'location'), DefaultRouter())
+    root.add_resource(('sensor', 'areaindex'), DefaultRouter())
+    root.add_resource(('sensor', 'register'),AreaRouter())
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(add_node())
+    loop.run_forever()
+
+if __name__ == "__main__":
+    main()

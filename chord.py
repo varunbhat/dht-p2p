@@ -5,7 +5,7 @@ import math
 
 class Chord:
     NODE_ID = None
-    id_space = ()
+    id_space = (0,1)
     finger_table = {}
     clientlist = []
     node_addressmap = {}
@@ -16,16 +16,15 @@ class Chord:
 
     _NODE_COUNT = 0
 
-    def __init__(self, address, m):
+    def __init__(self, m=(2**(4*20))):
         self._NODE_COUNT_MANTISSA = int(math.ceil(math.log(m, 2)))
-        self.NODE_ID = self.generate_id(address)
-        self.NODE_ID = self.generate_id(address)
 
     def generate_id(self, address):
-        return int(hashlib.sha1('%s:%d' % address).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
+        hash_inp = address.encode('utf8')
+        return int(hashlib.sha1(hash_inp).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
 
     def generate_file_id(self, filename):
-        return int(hashlib.sha1(filename).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
+        return int(hashlib.sha1(filename.encode('ascii')).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
 
     def get_nodeid(self):
         return self.NODE_ID
@@ -37,23 +36,20 @@ class Chord:
         return self.id_space
 
     def add_node(self, address):
-        self.initialize_range(self.node_addressmap.values() + [address])
+        self.initialize_range(list(self.node_addressmap.values()) + [address])
 
     def delete_node(self, address):
         del_id = self.generate_id(address)
         del self.node_addressmap[del_id]
-        self.initialize_range(self.node_addressmap.values())
+        self.initialize_range(list(self.node_addressmap.values()))
 
     def initialize_range(self, clientlist):
-        if type(clientlist) == tuple:
-            self.clientlist = [clientlist]
-        else:
-            self.clientlist = clientlist
+        self.clientlist = clientlist
 
         for client in self.clientlist:
             self.node_addressmap[self.generate_id(client)] = client
 
-        ids = self.node_addressmap.keys()
+        ids = list(self.node_addressmap.keys())
         ids.sort()
 
         self.id_space = (ids[ids.index(self.NODE_ID) - 1] + 1, self.NODE_ID + 1)
@@ -81,11 +77,18 @@ class Chord:
                 retval.append((addr, (id, filename)))
         return retval
 
+    def set_nodeid(self,ip_address):
+        self.NODE_ID = self.generate_id(ip_address)
+        if len(self.clientlist) == 0:
+            self.id_space = (self.NODE_ID,self.NODE_ID + 1)
+        else:
+            self.initialize_range(self.clientlist + [ip_address])
+
     def get_successor(self):
-        return self.successor.values()[0]
+        return list(self.successor.values())[0]
 
     def get_predecessor(self):
-        return self.predecessor.values()[0]
+        return list(self.predecessor.values())[0]
 
     def get_max_dist_address(self, fileid):
         val = (fileid - self.NODE_ID + 1) % (2 ** self._NODE_COUNT_MANTISSA)
@@ -132,7 +135,7 @@ class Chord:
         self.peer_filemap = list(set(self.peer_filemap))
 
     def generate_finger_table(self):
-        ids = self.node_addressmap.keys()
+        ids = list(self.node_addressmap.keys())
         ids.sort()
 
         ids_ov = ids + [(2 ** self._NODE_COUNT_MANTISSA) + i for i in ids]

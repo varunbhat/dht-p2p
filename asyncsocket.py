@@ -1,9 +1,7 @@
-import Queue
+import queue
 import logging
 import socket
 import threading
-
-import requests
 
 
 class AsyncNode:
@@ -12,10 +10,10 @@ class AsyncNode:
     __persistant_threads = []
     __persistant_thread_function = []
     __middlewares = []
-    __thread_queue = Queue.Queue()
+    __thread_queue = queue.Queue()
     __response_events = {}
 
-    def __init__(self, address=('', 10000)):
+    def __init__(self, address=('', 5683)):
         self.stop_flag = False
         self.format_address(address)
         self._run_event_handler(self._get_event_handler('init'))
@@ -29,7 +27,7 @@ class AsyncNode:
             self.address = (ip, port)
         logging.info('Node Address: %s:%d' % self.address)
 
-    def start(self, ip='', port=10000):
+    def start(self, ip='', port=5683):
         self.format_address((ip, port))
         self._run_event_handler(self._get_event_handler('init'))
 
@@ -105,7 +103,7 @@ class AsyncNode:
                     thread = self.__thread_queue.get(timeout=1)
                     thread.start()
                     self.__threads.append(thread)
-                except Queue.Empty:
+                except queue.Empty:
                     pop_count = 0
                     for i in range(len(self.__threads)):
                         if not self.__threads[i - pop_count].isAlive():
@@ -198,7 +196,7 @@ class AsyncNode:
     def startevent(self, event, *args, **kwargs):
         self.sprawn_thread(self._get_event_handler(event), *args, **kwargs)
 
-    def send_data(self, addr, message, callback=None, event=None, sock=None, no_thread=False, *args, **kwargs):
+    def get_data(self, addr, message, callback=None, event=None, sock=None, no_thread=False, *args, **kwargs):
         try:
             if sock is None:
                 sock = self._get_socket()
@@ -223,3 +221,22 @@ class AsyncNode:
             self.sprawn_thread(self._socket_receive, sock, callback, event, addr, *args, **kwargs)
         elif no_thread:
             return self._socket_receive(sock, callback, event, addr, *args, **kwargs)
+
+
+
+class Helpers:
+
+    def format_addresses(self, data):
+        if data is not None:
+            clients = []
+            for ip, port in data:
+                clients += [(ip, int(port))]
+            if len(clients) == 0:
+                data = None
+            elif len(clients) == 1:
+                data = clients[0]
+            else:
+                data = clients
+        return data
+
+helpers = Helpers()
