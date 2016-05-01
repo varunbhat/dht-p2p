@@ -1,0 +1,4 @@
+aiocoap==0.2
+asyncio==3.4.3
+LinkHeader==0.4.3
+more-itertools==2.2

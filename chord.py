@@ -1,13 +1,12 @@
-import hashlib
-import logging
 import math
+
+import hashlib
 
 
 class Chord:
     NODE_ID = None
-    id_space = (0,1)
+    id_space = (0, 0)
     finger_table = {}
-    clientlist = []
     node_addressmap = {}
     successor = {}
     predecessor = {}
@@ -16,17 +15,15 @@ class Chord:
 
     _NODE_COUNT = 0
 
-    def __init__(self, m=(2**(4*20))):
+    def __init__(self, m=(2 ** (4 * 20))):
         self._NODE_COUNT_MANTISSA = int(math.ceil(math.log(m, 2)))
+        self.mod_val = 2**self._NODE_COUNT_MANTISSA
 
-    def generate_id(self, address):
+    def generate_key(self, address):
         hash_inp = address.encode('utf8')
         return int(hashlib.sha1(hash_inp).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
 
-    def generate_file_id(self, filename):
-        return int(hashlib.sha1(filename.encode('ascii')).hexdigest()[0:int(math.ceil(self._NODE_COUNT_MANTISSA / 4.0))], 16)
-
-    def get_nodeid(self):
+    def get_nodekey(self):
         return self.NODE_ID
 
     def get_finger_table(self):
@@ -35,29 +32,24 @@ class Chord:
     def get_span(self):
         return self.id_space
 
-    def add_node(self, address):
-        self.initialize_range(list(self.node_addressmap.values()) + [address])
+    def add_node(self, key,addr):
+        if self.in_range(key):
+            peer_space = (key + 1, self.id_space[1])
+            peer_keys = self.get_predecessor_keys(key)
+            self.id_space = (key + 1, self.id_space[1])
+            return (peer_space, peer_keys)
+        elif self.in_range((self.id_space[1],self.successor[0])):
+            self.successor = (key,addr)
+        elif self.in_range(key,(self.predecessor,self.id_space[1])):
+            self.predecessor = (key, addr)
 
-    def delete_node(self, address):
-        del_id = self.generate_id(address)
-        del self.node_addressmap[del_id]
-        self.initialize_range(list(self.node_addressmap.values()))
+    def delete_node(self, key):
+        # find predecessor()
+        # self.initialize_range(list(self.node_addressmap.values()))
+        pass
 
     def initialize_range(self, clientlist):
-        self.clientlist = clientlist
-
-        for client in self.clientlist:
-            self.node_addressmap[self.generate_id(client)] = client
-
-        ids = list(self.node_addressmap.keys())
-        ids.sort()
-
-        self.id_space = (ids[ids.index(self.NODE_ID) - 1] + 1, self.NODE_ID + 1)
-
-        self.successor = {ids[(ids.index(self.NODE_ID) + 1) % len(ids)]: self.node_addressmap[
-            ids[(ids.index(self.NODE_ID) + 1) % len(ids)]]}
-        self.predecessor = {ids[ids.index(self.NODE_ID) - 1]: self.node_addressmap[ids[ids.index(self.NODE_ID) - 1]]}
-
+        self.successor = ()
         self.generate_finger_table()
 
         return self.id_space
@@ -77,12 +69,9 @@ class Chord:
                 retval.append((addr, (id, filename)))
         return retval
 
-    def set_nodeid(self,ip_address):
-        self.NODE_ID = self.generate_id(ip_address)
-        if len(self.clientlist) == 0:
-            self.id_space = (self.NODE_ID,self.NODE_ID + 1)
-        else:
-            self.initialize_range(self.clientlist + [ip_address])
+    def set_nodeid(self, ip_address):
+        self.NODE_ID = self.generate_key(ip_address)
+        self.id_space = (self.NODE_ID, self.NODE_ID)
 
     def get_successor(self):
         return list(self.successor.values())[0]
@@ -131,7 +120,7 @@ class Chord:
         self.peer_filemap = list(set(temp))
 
     def peer_file_add(self, key, filename, address):
-        self.peer_filemap.append((address, (key,filename)))
+        self.peer_filemap.append((address, (key, filename)))
         self.peer_filemap = list(set(self.peer_filemap))
 
     def generate_finger_table(self):
