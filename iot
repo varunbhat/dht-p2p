@@ -5,11 +5,12 @@ import asyncio
 import configparser
 import json
 import logging
+import re
 import socket
 
 import aiocoap
-import aiocoap.resource as resource
-import re
+import requests
+from aiocoap import resource
 from aiocoap.message import Message
 from aiocoap.protocol import Context
 from chord import Chord
@@ -29,14 +30,64 @@ config.read('node.cfg')
 
 def read_config():
     cfg = type('obj', (object,), {})
-    ip, port = config.get('bootstrap', 'address').split(':')
-    cfg.bs_address = (ip, int(port))
+    cfg.bs_address = config.get('bootstrap', 'address')
     return cfg
 
 
 args = arguement_parser()
 CONFIG = read_config()
 chord = Chord()
+
+
+class BootstrapServer(resource.Resource):
+    def __init__(self):
+        super(BootstrapServer, self).__init__()
+        self.area_router_map = {}
+
+    async def render_put(self, request):
+        query = dict([tuple(q.split('=')) for q in request.opt.uri_query])
+        key = query.get('key')
+        addr = (request.remote[0], int(query.get('port')))
+        if key:
+            if self.area_router_map.get(query['key']):
+                asyncio.get_event_loop().create_task(
+                    self.service_discovery_initiate(key, addr, self.area_router_map[query['key']]))
+                return Message(code=aiocoap.CONTENT,
+                               payload=json.dumps({'area_router': self.area_router_map[query['key']]}).encode('utf8'))
+            else:
+                asyncio.get_event_loop().create_task(self.find_area_router_capability(key, addr))
+                return Message(code=aiocoap.NOT_FOUND)
+        else:
+            return Message(code=aiocoap.BAD_REQUEST)
+
+    async def find_area_router_capability(self, key, addr):
+        context = await Context.create_client_context()
+        request = Message(code=aiocoap.GET)
+        request.opt.uri_host = addr[0]
+        request.opt.uri_port = addr[1]
+        request.opt.uri_path = ('.well-known', 'core')
+        resp = await context.request(request).response
+
+        routers = re.findall(r'<([a-zA-Z\.0-9_\-/]+)>', resp.payload.decode('utf8'))
+        print(routers)
+
+        if '/boostrap/areaindex' in routers:
+            self.area_router_map[key] = addr
+        else:
+            logging.warning('No area routers found. Dropping registration Request')
+
+        print('Result: %s\n%r' % (resp.code, resp.payload))
+
+    async def service_discovery_initiate(self, key, addr, area_addr):
+        logging.debug('Creating a new PUT request to remote Node')
+
+        context = await Context.create_client_context()
+        request = Message(code=aiocoap.PUT, payload=json.dumps({'source': addr, 'area': key}).encode('utf8'))
+        request.opt.uri_host = area_addr[0]
+        request.opt.uri_port = area_addr[1]
+        request.opt.uri_path = ('node', 'register')
+        resp = await context.request(request).response
+        print('Result: %s\n%r' % (resp.code, resp.payload))
 
 
 class AreaRouter(resource.Resource):
@@ -48,16 +99,15 @@ class AreaRouter(resource.Resource):
         self.sensor_chord.set_nodeid('%s:%d' % (socket.gethostbyname(socket.gethostname()), args.port or 3000))
         self.sl = []
 
-    @asyncio.coroutine
-    def service_discovery(self, address, key):
+    async def service_discovery(self, address, key):
         logging.debug('Service Discovery Query')
-        context = yield from Context.create_client_context()
+        context = await Context.create_client_context()
         request = Message(code=aiocoap.GET)
         print(address)
         request.opt.uri_host = address[0]
         request.opt.uri_port = address[1]
         request.opt.uri_path = ('.well-known', 'core')
-        resp = yield from context.request(request).response
+        resp = await context.request(request).response
         # todo: store the value in the dht about the type of messages
         routers = re.findall(r'<([a-zA-Z\.0-9_\-/]+)>', resp.payload.decode('utf8'))
         ip, port = address
@@ -68,8 +118,8 @@ class AreaRouter(resource.Resource):
                 self.sl.append(addre)
                 self.sensor_chord.peer_file_add(self.sensor_chord.generate_key(v[-1]), v[-1], addre)
 
-    @asyncio.coroutine
-    def render_put(self, request):
+
+    async def render_put(self, request):
         payload = json.loads(request.payload.decode('utf8'))
         print(payload)
         logging.debug('Area Router Query')
@@ -78,14 +128,16 @@ class AreaRouter(resource.Resource):
                 asyncio.get_event_loop().create_task(self.service_discovery(payload['source'], payload['area']))
                 return aiocoap.Message(code=aiocoap.CREATED)
             else:
-                context = yield from Context.create_client_context()
+                context = await Context.create_client_context()
                 request = Message(code=aiocoap.PUT, payload=request.payload)
                 request.opt.uri_host = self.chord.get_max_dist_address(payload['search'])
-                resp = yield from context.request(request).response
+                resp = await context.request(request).response
                 return aiocoap.Message(code=resp.code, payload=resp.payload)
         return aiocoap.Message(code=aiocoap.BAD_REQUEST)
 
     def render_get(self, request):
+        print(request)
+        return
         payload = json.loads(request.payload.decode('utf8'))
         key = self.sensor_chord.generate_key(payload['sensor'])
         res = []
@@ -100,18 +152,36 @@ class DefaultRouter(resource.Resource):
         super(DefaultRouter, self).__init__()
 
 
-@asyncio.coroutine
-def add_node():
+
+async def add_node():
     logging.debug('Sending Put Request to the bootstrap server')
-    context = yield from Context.create_client_context()
+    context = await Context.create_client_context()
     request = Message(code=aiocoap.PUT)
-    request.opt.uri_host = CONFIG.bs_address[0]
-    request.opt.uri_port = CONFIG.bs_address[1]
+    request.opt.uri_host = CONFIG.bs_address
     request.opt.uri_path = ('query',)
     request.opt.uri_query = ('key=%s' % (chord.generate_key('Bangalore')), 'port=%s' % (args.port or 3000))
     # request.set_request_uri('coap://localhost/register')
-    response = yield from context.request(request).response
+    response = await context.request(request).response
     print('Result: %s\n%r' % (response.code, response.payload))
+
+
+async def updateRemote():
+    context = await Context.create_client_context()
+    request = Message(code=aiocoap.GET)
+    request.opt.uri_host = 'iot.varunbhat.in'
+    request.opt.uri_path = ('node', 'register')
+    try:
+        resp = await context.request(request).response
+        print('Result: %s\n%r' % (resp.code, resp.payload))
+    except aiocoap.error.RequestTimedOut:
+        values = {'hostname': 'iotaas.servehttp.com', 'myip': socket.gethostbyname(socket.gethostname())}
+        r = requests.get('http://dynupdate.no-ip.com/nic/update', auth=('varunbhatkn', 'djptwm241'), params=values)
+        if 'nochg' in r.text:
+            logging.debug('No Update Same IP Address')
+        elif 'good' in r.text:
+            logging.debug('Update Successful')
+            await asyncio.sleep(60)
+            logging.debug('Bootstrap IP address Moved to:', socket.gethostbyname('iot.varunbhat.in'))
 
 
 # logging setup
@@ -125,18 +195,21 @@ def main():
     root = resource.Site()
     root.add_resource(('.well-known', 'core'), resource.WKCResource(root.get_resources_as_linkheader))
     # root.add_resource(('sensor', 'location'), DefaultRouter())
-    root.add_resource(('boostrap', 'areaindex'), DefaultRouter())
-    root.add_resource(('sensor', 'areaindex'), DefaultRouter())
-    root.add_resource(('sensor', 'temperature'), DefaultRouter())
-    root.add_resource(('sensor', 'humidity'), DefaultRouter())
-    root.add_resource(('node', 'register'), AreaRouter())
-    logging.debug('Starting at port %s' % (args.port or 3000))
-    asyncio.async(aiocoap.Context.create_server_context(root, bind=('', args.port or 3000)))
+    root.add_resource(('bootstrap', 'register'), BootstrapServer())
+    # root.add_resource(('boostrap', 'areaindex'), DefaultRouter())
+    # root.add_resource(('sensor', 'areaindex'), DefaultRouter())
+    # root.add_resource(('sensor', 'temperature'), DefaultRouter())
+    # root.add_resource(('sensor', 'humidity'), DefaultRouter())
+    # root.add_resource(('node', 'register'), AreaRouter())
+    # logging.debug('Starting at port %s' % (args.port or 3000))
+    # bind = ('', args.port or 3000)
+    asyncio.ensure_future(aiocoap.Context.create_server_context(root))
 
     loop = asyncio.get_event_loop()
+    loop.create_task(updateRemote())
     loop.create_task(add_node())
-
     loop.run_forever()
+
 
 if __name__ == "__main__":
     main()
