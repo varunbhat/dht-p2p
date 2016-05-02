@@ -22,6 +22,8 @@ nw_size = 0
 uname = "ALPHA"
 hops = {}
 latency = {}
+status = {}
+msgs = {}
 
 class CentralController:
     def __init__(self, bs_ip, bs_port, uname, s):
@@ -53,27 +55,47 @@ class CentralController:
         self.s_thread.setDaemon(True)
         self.s_thread.start()
 
+    def __handle(self, cli, addr):
+        pass
+
+
     def __server_processor(self):
+        global file_searched, hops, latency, status, msgs
         self.__RUN_SERVER = True
-        while(self.__RUN_SERVER):
+        self.server_skt.listen(5)
+        while(True):
             try:
                 cli, addr = self.server_skt.accept()
             except socket.error, e:
                 print 'Server Thread: ', e.message
                 continue
             # SEROK hops latency num_nodes ip port key entry
+            # rx_thread = threading.Thread(target=self.__handle, args=(cli, addr))
+            # rx_thread.setDaemon(True)
+            # rx_thread.run()
             data = cli.recv(3500)
+            cli.close()
             d = json.loads(data)
-            entry = d['entry']
-            if entry not in hops:
-                hops[entry] = []
-            if entry not in latency:
-                latency[entry] = []
-            hops[entry].append(d['hops'])
-            latency[entry].append(d['endtime']-data['startime'])
+            print d
+            if d['type'] == 'SER':
+                if file_searched not in hops:
+                    hops[file_searched] = []
+                if file_searched not in latency:
+                    latency[file_searched] = []
+                if file_searched not in status:
+                    status[file_searched] = []
+                hops[file_searched].append(int(d['hops']))
+                latency[file_searched].append(float(d['endtime']) - float(d['starttime']))
+                status[file_searched].append(int(d['error_code']))
+            elif d['type'] == 'MESSAGE':
+                if file_searched not in msgs:
+                    msgs[file_searched] = []
+                msgs[file_searched].append(int(d['msg_count']))
+
             self.write_log(data)
             print 'RX: {0} from {1}'.format(data, addr)
             self.__main_thread_notifier.set()
+        print 'End of server thread!'
 
     def __send_command_1(self, toip, toport, command, rx=False):
         try:
@@ -157,10 +179,17 @@ class CentralController:
             command = {'command':'STARTSEARCH', 'QUERY':query, 'SERVERINFO':(self.myip, self.myport)}
             self.__send_command(node[0], node[1], json.dumps(command))
             self.write_log("STARTSEARCH " + query + "=> " + str(node[0]) + ":" + str(node[1]))
-            self.__main_thread_notifier.wait(3)
+            self.__main_thread_notifier.wait(0.5)
             self.__main_thread_notifier.clear()
             return True
         return False
+
+    def message_count(self, ip, port):
+        command = {'command':'NUM_MESSAGES', 'SERVERINFO':(self.myip, self.myport)}
+        self.__send_command(ip, port, command)
+        self.write_log("NUM_MESSAGES => " + str(ip) + ":" + str(port))
+        self.__main_thread_notifier.wait(0.1)
+        self.__main_thread_notifier.clear()
 
     def ring_test(self, num_nodes):
         if len(self.nodes) < num_nodes:
@@ -187,7 +216,8 @@ class CentralController:
             self.exit_node(ip, port)
         command = "DEL UNAME " + str(uname)
         self.__send_command_1(b_ip, b_port, command, True)
-        self.__main_thread_notifier.wait(5)
+        self.__main_thread_notifier.wait(2)
+        self.__main_thread_notifier.clear()
 
     def random_node(self):
         random.seed()
@@ -203,7 +233,7 @@ class CentralController:
         command = {'command':'EXITALL', 'SERVERINFO':(self.myip, self.myport)}
         self.__send_command(ip, port, command)
         for i in self.nodes:
-            b = self.__main_thread_notifier.wait(2)
+            b = self.__main_thread_notifier.wait(0.1)
             self.__main_thread_notifier.clear()
 
     def get_iplist(self):
@@ -293,8 +323,10 @@ def read_resources(filename):
         file_contents.append(line.rstrip())
     return file_contents
 
+file_searched = ''
+
 def main():
-    global controller
+    global controller, file_searched
     controller = CentralController(b_ip, b_port, uname, zipf_s)
     controller.get_iplist()
     num_nodes = len(controller.nodes)
@@ -302,18 +334,41 @@ def main():
         print 'Network size is %d. Desired Size is %d' %(num_nodes, nw_size)
         sys.exit(0)
 
-    controller.pick_remanining(4)
+    #controller.pick_remanining(4)
     resources = read_resources('resources_sp2p.txt')
     freq = get_zipf_s(resources, 0.6)
     idx = 0
     for f in freq:
         r = range(f)
         query = resources[idx]
+        file_searched = query
         for i in r:
             controller.search_for(query)
+            # for ip, port in controller.nodes:
+            #     controller.message_count(ip, port)
         idx += 1
 
-    controller.exit_all_nodes()
+
+    f = open('result.csv', 'w')
+    sum_hops = 0
+    total_queries = sum(freq)
+    for r in resources:
+        if r not in hops:
+            msg = "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}".format(r, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        else:
+            h = hops[r]
+            l = latency[r]
+            s = status[r]
+            msg = "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}".format(r, max(h), min(h), 1.0*sum(h)/len(h), max(l), min(l), 1.0*sum(l)/len(l), max(s), min(s), 1.0*sum(s)/len(s))
+            sum_hops += sum(h)
+        f.write(msg + "\n")
+    f.close()
+    for ip, port in controller.nodes:
+        controller.exit_node(ip, port)
+    per_query_cost = 1.0 * sum_hops / total_queries
+    per_node_cost = 1.0 * sum_hops / num_nodes
+    print 'Per Query Cost: ', per_query_cost
+    print 'Per Node Cost: ', per_node_cost
 
 
 #Initial processing

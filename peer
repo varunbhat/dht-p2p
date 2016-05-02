@@ -167,8 +167,10 @@ def search(request, sock):
     details = []
 
     for addr, (id, filename) in chord.get_peer_filemap():
+        print id,key
         if id == key:
             details.append((addr, filename))
+
     if len(details) > 0:
         node.send_data(request['address'],
                        protocol.search_response(int(request['hops']) + 1, request['starttime'], time.time(),
@@ -354,6 +356,11 @@ def monitor_commands():
             data = [(node.get_address(), (chord.generate_file_id(filex), filex)) for filex in files]
             for addr, (key, filename) in data:
                 chord.peer_file_add(key, filename, addr)
+        elif 'addkey' in input_read:
+            filename = input_read.split(' ')[1]
+            chord.initialize_files([filename])
+            key = chord.generate_file_id(filename)
+            chord.peer_file_add(key, filename, node.get_address())
         elif len(re.findall(r'search *([a-z0-9A-Z_]+.*)?', input_read)) > 0:
             data = re.findall(r'([a-z0-9A-Z_]+) +(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) +(\d+)?', input_read)
             if len(data) > 0:
