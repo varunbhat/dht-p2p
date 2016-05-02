@@ -365,6 +365,17 @@ def monitor_commands():
             node.send_data(client, protocol.deregister_all(CONFIG.username),no_thread=True)
             node.stop()
             return
+        elif input_read == 'help':
+            print 'details\n' \
+                  'fingertable\n' \
+                  'entries\n' \
+                  'keytable\n' \
+                  'clients\n' \
+                  'range\n' \
+                  'exit\n' \
+                  'add\n' \
+                  'search <key> <sourceip> <sourceport>\n' \
+                  'exitall\n'
     except Exception, e:
         print e
         pass
