@@ -97,6 +97,7 @@ ser_req = None
 
 @node.on('handler')
 def handler(data, sock, *args, **kwargs):
+    global ser_req, msg_count
     try:
         if data != '' or data is not None:
             data = json.loads(data)
@@ -123,12 +124,20 @@ def handler(data, sock, *args, **kwargs):
             data = [(node.get_address(), (chord.generate_file_id(filex), filex)) for filex in files]
             for addr, (key, filename) in data:
                 chord.peer_file_add(key, filename, addr)
+        elif data.get('command') == "NUM_MESSAGES":
+            ser_req = tuple(data['SERVERINFO'])
+            node.send_data(ser_req, json.dumps({'msg_count': msg_count, 'type':'MESSAGE'}))
+            msg_count = 0
 
+
+msg_count = 0
 
 @node.on('message')
 def echoMessage(data, sock=None, address=None, *args, **kwargs):
+    global msg_count
     response = protocol.parse_response(data)
     if response is not None:
+        msg_count += 1
         return node.startevent(response['type'], response, sock)
     node.startevent('handler', data, sock)
 
@@ -152,6 +161,7 @@ def add_request(request, sock):
 
 @node.on('SER')
 def search(request, sock):
+    global ser_req
     if request['is_response']:
         print 'Response Received:', request['details']
         if ser_req:
