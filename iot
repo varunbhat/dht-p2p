@@ -18,7 +18,8 @@ from chord import Chord
 def arguement_parser():
     parser = argparse.ArgumentParser(description='Create a socket server')
     parser.add_argument('-p', "--port", type=int, help='Port Number to use for the server', required=True)
-    parser.add_argument('-f', "--file_count", type=int, help='Number of files in the initial list', required=False)
+    parser.add_argument('-l', "--location", type=str, help='Port Number to use for the server', required=True)
+    parser.add_argument('-s', "--sensors", type=str, help='Sensors Registered', required=True)
     args = parser.parse_args()
     return args
 
@@ -47,6 +48,7 @@ class AreaRouter(resource.Resource):
         self.sensor_chord = Chord()
         self.sensor_chord.set_nodeid('%s:%d' % (socket.gethostbyname(socket.gethostname()), args.port or 3000))
         self.sl = []
+        self.sensor_key_map = []
 
     @asyncio.coroutine
     def service_discovery(self, address, key):
@@ -61,12 +63,17 @@ class AreaRouter(resource.Resource):
         # todo: store the value in the dht about the type of messages
         routers = re.findall(r'<([a-zA-Z\.0-9_\-/]+)>', resp.payload.decode('utf8'))
         ip, port = address
+        print('routers:' , routers)
+
         for val in routers:
             v = val.split('/')
-            if val.split('/')[1] == 'sensors':
+            if val.split('/')[1] == 'sensor':
                 addre = 'coap://%s:%s%s' % (ip, port, val)
-                self.sl.append(addre)
+                self.sl.append((self.chord.generate_key(v[-1]), addre))
+                self.sensor_key_map.append((v[-1],self.chord.generate_key(v[-1])))
                 self.sensor_chord.peer_file_add(self.sensor_chord.generate_key(v[-1]), v[-1], addre)
+        print(self.sensor_key_map)
+        print(self.sl)
 
     @asyncio.coroutine
     def render_put(self, request):
@@ -87,11 +94,14 @@ class AreaRouter(resource.Resource):
 
     def render_get(self, request):
         payload = json.loads(request.payload.decode('utf8'))
-        key = self.sensor_chord.generate_key(payload['sensor'])
         res = []
-        for i in self.sl:
-            if key in i:
-                res.append(i)
+        payload = payload['sensor']
+        payload = payload.split(',')
+        for sensor in payload:
+            key = self.sensor_chord.generate_key(sensor)
+            print(dict(self.sl))
+            if dict(self.sl).get(key) is not None:
+                res.append(dict(self.sl).get(key))
         return aiocoap.Message(code=aiocoap.CONTENT, payload=json.dumps({'result': res}).encode('utf8'))
 
 
@@ -108,7 +118,7 @@ def add_node():
     request.opt.uri_host = CONFIG.bs_address[0]
     request.opt.uri_port = CONFIG.bs_address[1]
     request.opt.uri_path = ('query',)
-    request.opt.uri_query = ('key=%s' % (chord.generate_key('Bangalore')), 'port=%s' % (args.port or 3000))
+    request.opt.uri_query = ('key=%s' % (chord.generate_key(args.location)), 'port=%s' % (args.port or 3000))
     # request.set_request_uri('coap://localhost/register')
     response = yield from context.request(request).response
     print('Result: %s\n%r' % (response.code, response.payload))
@@ -125,11 +135,13 @@ def main():
     root = resource.Site()
     root.add_resource(('.well-known', 'core'), resource.WKCResource(root.get_resources_as_linkheader))
     # root.add_resource(('sensor', 'location'), DefaultRouter())
+    root.add_resource(('node', 'register'), AreaRouter())
     root.add_resource(('boostrap', 'areaindex'), DefaultRouter())
     root.add_resource(('sensor', 'areaindex'), DefaultRouter())
-    root.add_resource(('sensor', 'temperature'), DefaultRouter())
-    root.add_resource(('sensor', 'humidity'), DefaultRouter())
-    root.add_resource(('node', 'register'), AreaRouter())
+
+    for sensor in args.sensors.split(','):
+        root.add_resource(('sensor', sensor), DefaultRouter())
+
     logging.debug('Starting at port %s' % (args.port or 3000))
     asyncio.async(aiocoap.Context.create_server_context(root, bind=('', args.port or 3000)))
 
