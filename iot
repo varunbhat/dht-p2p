@@ -97,6 +97,7 @@ class AreaRouter(resource.Resource):
         res = []
         payload = payload['sensor']
         payload = payload.split(',')
+        print(payload)
         for sensor in payload:
             key = self.sensor_chord.generate_key(sensor)
             print(dict(self.sl))

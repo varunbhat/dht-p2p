@@ -33,6 +33,10 @@ Run the Main file using
 
 > ./iot -p <PORT>
 
+Run the client to send the requests
+
+> python clients.py [sensors] [location]
+
 
 
 

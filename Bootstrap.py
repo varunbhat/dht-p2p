@@ -47,11 +47,12 @@ class BootstrapServer(resource.Resource):
         key = query.get('key')
         addr = (request.remote[0], int(query.get('port')))
         if key:
-            if self.area_router_map.get(query['key']):
+            print(self.area_router_map)
+            if self.area_router_map.get(int(query['key'])):
                 asyncio.get_event_loop().create_task(
-                    self.service_discovery_initiate(key, addr, self.area_router_map[query['key']]))
+                    self.service_discovery_initiate(key, addr, self.area_router_map[int(query['key'])]))
                 return Message(code=aiocoap.CONTENT,
-                               payload=json.dumps({'area_router': self.area_router_map[query['key']]}).encode('utf8'))
+                               payload=json.dumps({'area_router': self.area_router_map[int(query['key'])]}).encode('utf8'))
             else:
                 asyncio.get_event_loop().create_task(self.find_area_router_capability(key, addr))
                 return Message(code=aiocoap.NOT_FOUND)
@@ -71,7 +72,7 @@ class BootstrapServer(resource.Resource):
         print(routers)
 
         if '/boostrap/areaindex' in routers:
-            self.area_router_map[key] = addr
+            self.area_router_map[int(key)] = addr
             print(self.area_router_map)
         else:
             # Todo: register with the next available area (Use google maps / gridfs)
@@ -95,13 +96,18 @@ class BootstrapServer(resource.Resource):
         payload = json.loads(request.payload.decode('utf8'))
         key = self.chord.generate_key(payload['area'])
         print('Key',key)
-        res = self.area_router_map.get(str(key))
+        print(type(key))
+        print(type(str(key)))
+        res = self.area_router_map[int(key)]
+        print(res)
         print(self.area_router_map)
         print('res',res)
         print(payload)
+        data = []
 
         if res is not None:
             context = yield from Context.create_client_context()
+            print(payload['sensor'])
             request = Message(code=aiocoap.GET, payload=json.dumps({'sensor': payload['sensor']}).encode('utf8'))
             request.opt.uri_host = res[0]
             request.opt.uri_port = res[1]
